@@ -1,0 +1,52 @@
+# .kairi.yml - Kairi PR Review Bot configuration
+# Place this file in the root of your repository to customize behavior.
+
+enabled: true
+
+rules:
+  no-console-log:
+    enabled: true
+    severity: warning
+  max-file-size:
+    enabled: true
+    severity: warning
+    maxLines: 500
+  no-secrets:
+    enabled: true
+    severity: error
+  require-tests:
+    enabled: true
+    severity: warning
+  no-todo:
+    enabled: false   # disable for this repo
+
+llm:
+  enabled: true
+  model: claude-sonnet-4-20250514
+  maxTokenBudget: 80000
+  temperature: 0
+  focusAreas:
+    - bugs
+    - security
+    - performance
+    - readability
+  customInstructions: |
+    This is a TypeScript monorepo. Pay special attention to type safety.
+    We use Hono for HTTP and Zod for validation.
+
+filters:
+  excludePaths:
+    - "*.generated.ts"
+    - "coverage/**"
+    - "docs/**"
+  maxFiles: 50
+  maxFileSizeKB: 200
+
+review:
+  postSummary: true
+  dismissOnUpdate: true
+
+learning:
+  enabled: true
+  feedbackFromReactions: true
+  feedbackFromResolved: true

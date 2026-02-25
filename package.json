@@ -1,0 +1,37 @@
+{
+  "name": "kairi",
+  "version": "0.1.0",
+  "description": "GitHub App PR Reviewer Bot with rule-based checks + Claude LLM analysis + self-improving feedback loop",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@hono/node-server": "^1.19.9",
+    "@octokit/auth-app": "^7.1.4",
+    "@octokit/rest": "^21.1.1",
+    "@octokit/webhooks": "^13.4.2",
+    "@qdrant/js-client-rest": "^1.13.0",
+    "hono": "^4.7.4",
+    "js-yaml": "^4.1.0",
+    "neo4j-driver": "^5.28.1",
+    "pg": "^8.18.0",
+    "pino": "^9.6.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.13.4",
+    "@types/pg": "^8.16.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

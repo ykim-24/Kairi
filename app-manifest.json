@@ -1,0 +1,19 @@
+{
+  "name": "Kairi",
+  "url": "https://github.com",
+  "hook_attributes": {
+    "url": "https://smee.io/j0y5F3p2atKDTZp",
+    "active": true
+  },
+  "redirect_url": "https://github.com",
+  "public": false,
+  "default_permissions": {
+    "pull_requests": "write",
+    "contents": "read"
+  },
+  "default_events": [
+    "pull_request",
+    "pull_request_review",
+    "pull_request_review_comment"
+  ]
+}
