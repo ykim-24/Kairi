@@ -13,9 +13,14 @@ import {
 import { storeInteraction as vectorStore } from "../learning/vector-store.js";
 import { storeInteraction as graphStore } from "../learning/graph-store.js";
 import { extractConcepts } from "../learning/concept-extractor.js";
+import { enrichFindings } from "../learning/enrich.js";
 import { collectReviewMetrics } from "../metrics/collector.js";
+import { getFeatureFlag, insertPendingReview } from "../metrics/pg-store.js";
 import { estimateFileTokens } from "../llm/chunker.js";
-import type { InlineComment, ReviewResult } from "./types.js";
+import { filterFindings } from "./filter.js";
+import { buildReviewBody } from "./body-builder.js";
+import { formatInlineComment } from "./inline-formatter.js";
+import type { ReviewFinding, ReviewResult } from "./types.js";
 import type { ParsedFile } from "../utils/diff-parser.js";
 import { createChildLogger } from "../utils/logger.js";
 
@@ -68,7 +73,7 @@ export async function orchestrateReview(
   }
 
   // 6. Run LLM review
-  let llmComments: InlineComment[] = [];
+  let llmComments: ReviewFinding[] = [];
   let llmSummary = "";
   let chunksUsed = 0;
 
@@ -83,51 +88,100 @@ export async function orchestrateReview(
     chunksUsed = llmResult.chunksUsed;
   }
 
-  // 7. Combine results
-  const allComments = deduplicateComments([...ruleComments, ...llmComments]);
-  const highestSeverity = getHighestSeverity(allComments);
+  // 7. Combine into unified ReviewFinding[] and deduplicate
+  const allFindings = deduplicateFindings([...ruleComments, ...llmComments]);
+
+  // 8. Partition into inline-worthy vs body-only
+  const { inline, bodyOnly } = filterFindings(allFindings, config);
+
+  // 9. Enrich inline findings with graph DB context
+  const repo = `${ctx.owner}/${ctx.repo}`;
+  let enrichedInline = inline;
+  if (isLearningEnabled(env) && config.learning.enabled) {
+    enrichedInline = await enrichFindings(inline, repo, parsedFiles);
+  }
+
+  // 10. Build structured review body with all findings
+  const durationMs = Date.now() - startTime;
+  const bodyMarkdown = buildReviewBody({
+    llmSummary,
+    findings: [...enrichedInline, ...bodyOnly],
+    inlineCount: enrichedInline.length,
+    metadata: {
+      filesReviewed: parsedFiles.length,
+      rulesRun,
+      llmFindings: llmComments.length,
+      ruleFindings: ruleComments.length,
+      durationMs,
+    },
+  });
+
+  // 11. Format inline comments
+  const formattedInline = enrichedInline.map((f) => ({
+    ...f,
+    body: formatInlineComment(f),
+  }));
+
+  // 12. Determine event type
+  const hasErrors = allFindings.some((f) => f.severity === "error");
+  const event = hasErrors ? "REQUEST_CHANGES" as const : "COMMENT" as const;
 
   const result: ReviewResult = {
-    summary: buildSummary(llmSummary, ruleComments, llmComments, parsedFiles),
-    inlineComments: allComments,
-    severity: highestSeverity,
-    ruleFindings: ruleComments,
-    llmFindings: llmComments,
+    bodyMarkdown,
+    inlineComments: formattedInline,
+    event,
     metadata: {
       filesReviewed: parsedFiles.length,
       rulesRun,
       llmChunks: chunksUsed,
-      durationMs: Date.now() - startTime,
+      durationMs,
     },
   };
 
-  // 8. Post review
+  // 13. Check review gate — hold review for manual approval if enabled
+  const gated = await getFeatureFlag("review_gate");
+  if (gated) {
+    await insertPendingReview(
+      repo,
+      ctx.pullNumber,
+      ctx.headSha,
+      ctx.owner,
+      ctx.installationId,
+      result
+    );
+    log.info(
+      { pr: ctx.pullNumber, repo },
+      "Review gated — held for manual approval"
+    );
+    return;
+  }
+
+  // 14. Post review
   const reviewId = await postReview(octokit, ctx, result);
 
-  // 9. Record metrics
-  const repo = `${ctx.owner}/${ctx.repo}`;
+  // 15. Record metrics
   collectReviewMetrics({
     repo,
     pullNumber: ctx.pullNumber,
-    totalComments: allComments.length,
+    totalComments: allFindings.length,
     ruleComments: ruleComments.length,
     llmComments: llmComments.length,
     filesReviewed: parsedFiles.length,
-    errorCount: allComments.filter((c) => c.severity === "error").length,
-    warningCount: allComments.filter((c) => c.severity === "warning").length,
-    infoCount: allComments.filter((c) => c.severity === "info").length,
+    errorCount: allFindings.filter((c) => c.severity === "error").length,
+    warningCount: allFindings.filter((c) => c.severity === "warning").length,
+    infoCount: allFindings.filter((c) => c.severity === "info").length,
     llmChunks: chunksUsed,
     llmTokensEstimated: parsedFiles.reduce((sum, f) => sum + estimateFileTokens(f), 0),
     llmParseSuccess: llmComments.length > 0 || llmSummary.length > 0,
-    durationMs: result.metadata.durationMs,
+    durationMs,
     patternsRecalled: learningPrompt ? (learningPrompt.match(/^- \*\*/gm)?.length ?? 0) : 0,
     approvedPatternsUsed: learningPrompt ? (learningPrompt.match(/well-received/g)?.length ?? 0) > 0 ? 1 : 0 : 0,
     rejectedPatternsUsed: learningPrompt ? (learningPrompt.match(/dismissed/g)?.length ?? 0) > 0 ? 1 : 0 : 0,
   });
 
-  // 10. Store interactions for learning
+  // 16. Store interactions for learning
   if (isLearningEnabled(env) && config.learning.enabled) {
-    await storeReviewInteractions(ctx, parsedFiles, allComments, reviewId);
+    await storeReviewInteractions(ctx, parsedFiles, allFindings, reviewId);
   }
 
   log.info(
@@ -136,8 +190,10 @@ export async function orchestrateReview(
       reviewId,
       ruleFindings: ruleComments.length,
       llmFindings: llmComments.length,
-      totalComments: allComments.length,
-      durationMs: result.metadata.durationMs,
+      totalFindings: allFindings.length,
+      inlinePosted: formattedInline.length,
+      bodyOnlyCount: bodyOnly.length,
+      durationMs,
     },
     "Review complete"
   );
@@ -179,17 +235,17 @@ function matchGlob(path: string, pattern: string): boolean {
   return new RegExp(`^${regex}$`).test(path);
 }
 
-function deduplicateComments(comments: InlineComment[]): InlineComment[] {
-  const seen = new Map<string, InlineComment>();
-  for (const c of comments) {
-    const key = `${c.path}:${c.line}`;
+function deduplicateFindings(findings: ReviewFinding[]): ReviewFinding[] {
+  const seen = new Map<string, ReviewFinding>();
+  for (const f of findings) {
+    const key = `${f.path}:${f.line}`;
     const existing = seen.get(key);
     // Keep the higher-severity one, or LLM over rule for same severity
     if (
       !existing ||
-      severityRank(c.severity) > severityRank(existing.severity)
+      severityRank(f.severity) > severityRank(existing.severity)
     ) {
-      seen.set(key, c);
+      seen.set(key, f);
     }
   }
   return Array.from(seen.values());
@@ -199,37 +255,10 @@ function severityRank(s: string): number {
   return s === "error" ? 3 : s === "warning" ? 2 : 1;
 }
 
-function getHighestSeverity(
-  comments: InlineComment[]
-): "error" | "warning" | "info" {
-  if (comments.some((c) => c.severity === "error")) return "error";
-  if (comments.some((c) => c.severity === "warning")) return "warning";
-  return "info";
-}
-
-function buildSummary(
-  llmSummary: string,
-  ruleComments: InlineComment[],
-  llmComments: InlineComment[],
-  files: ParsedFile[]
-): string {
-  const parts: string[] = [];
-
-  if (llmSummary) {
-    parts.push(llmSummary);
-  }
-
-  parts.push(
-    `\n---\n**Kairi Review Stats**: ${files.length} files reviewed | ${ruleComments.length} rule findings | ${llmComments.length} LLM findings`
-  );
-
-  return parts.join("\n");
-}
-
 async function storeReviewInteractions(
   ctx: PRContext,
   files: ParsedFile[],
-  comments: InlineComment[],
+  comments: ReviewFinding[],
   _reviewId: number
 ): Promise<void> {
   const repo = `${ctx.owner}/${ctx.repo}`;
@@ -258,7 +287,7 @@ async function storeReviewInteractions(
       reviewComment: comment.body,
       filePath: comment.path,
       line: comment.line,
-      category: (comment as any).category ?? comment.ruleId ?? "general",
+      category: comment.category ?? comment.ruleId ?? "general",
       approved: null,
       concepts: extractConcepts([file], comment.body),
       timestamp: new Date().toISOString(),

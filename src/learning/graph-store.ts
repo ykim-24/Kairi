@@ -49,6 +49,31 @@ export async function shutdownGraphStore(): Promise<void> {
   }
 }
 
+export async function clearRepoLearning(repo: string): Promise<number> {
+  if (!_driver) return 0;
+  const session = _driver.session();
+
+  try {
+    const result = await session.run(
+      `
+      MATCH (i:Interaction)-[:BELONGS_TO]->(r:Repo {name: $repo})
+      WITH i, count(i) AS total
+      DETACH DELETE i
+      RETURN total
+      `,
+      { repo }
+    );
+    const deleted = result.records[0]?.get("total")?.toNumber?.() ?? 0;
+    log.info({ repo, deleted }, "Cleared repo learning data from Neo4j");
+    return deleted;
+  } catch (err) {
+    log.warn({ err, repo }, "Failed to clear repo learning data from Neo4j");
+    return 0;
+  } finally {
+    await session.close();
+  }
+}
+
 export async function storeInteraction(
   interaction: ReviewInteraction
 ): Promise<void> {
@@ -144,6 +169,7 @@ export async function getRelatedInteractions(
       RETURN i.id AS id, i.reviewComment AS reviewComment,
              i.diffContext AS diffContext, i.approved AS approved,
              i.category AS category, f.path AS filePath,
+             i.pullNumber AS pullNumber, i.source AS source,
              matchedConcepts, relevance
       `,
       { concepts, repo, limit: neo4j.int(limit) }
@@ -155,6 +181,8 @@ export async function getRelatedInteractions(
       filePath: r.get("filePath") ?? "",
       category: r.get("category") ?? "",
       approved: r.get("approved"),
+      pullNumber: (r.get("pullNumber") as any)?.toNumber?.() ?? r.get("pullNumber") ?? undefined,
+      source: r.get("source") ?? undefined,
       score: (r.get("relevance") as any)?.toNumber?.() ?? 0,
     }));
   } catch (err) {
@@ -174,17 +202,35 @@ export async function getFileHistory(
   const session = _driver.session();
 
   try {
+    // Query by exact path OR by file name concept (stem-based matching)
+    // This catches renamed/moved files that share the same name
+    const fileConcept = `file:${filePath}`;
+    const stem = filePath.split("/").pop()?.replace(/\.[^.]+$/, "").toLowerCase() ?? "";
+    const stemConcept = stem.length > 2 ? `stem:${stem}` : null;
+
     const result = await session.run(
       `
-      MATCH (i:Interaction)-[:REVIEWED]->(f:File {path: $filePath})
-      WHERE (i)-[:BELONGS_TO]->(:Repo {name: $repo})
-        AND i.approved IS NOT NULL
-      RETURN i.reviewComment AS reviewComment, i.diffContext AS diffContext,
-             i.approved AS approved, i.category AS category, f.path AS filePath
+      MATCH (i:Interaction)-[:BELONGS_TO]->(:Repo {name: $repo})
+      WHERE i.approved IS NOT NULL
+      AND (
+        (i)-[:REVIEWED]->(:File {path: $filePath})
+        OR (i)-[:RELATES_TO]->(:Concept {name: $fileConcept})
+        ${stemConcept ? "OR (i)-[:RELATES_TO]->(:Concept {name: $stemConcept})" : ""}
+      )
+      MATCH (i)-[:REVIEWED]->(f:File)
+      RETURN DISTINCT i.reviewComment AS reviewComment, i.diffContext AS diffContext,
+             i.approved AS approved, i.category AS category, f.path AS filePath,
+             i.pullNumber AS pullNumber, i.source AS source
       ORDER BY i.timestamp DESC
       LIMIT $limit
       `,
-      { filePath, repo, limit: neo4j.int(limit) }
+      {
+        filePath,
+        repo,
+        fileConcept,
+        ...(stemConcept ? { stemConcept } : {}),
+        limit: neo4j.int(limit),
+      }
     );
 
     return result.records.map((r) => ({
@@ -193,6 +239,8 @@ export async function getFileHistory(
       filePath: r.get("filePath") ?? "",
       category: r.get("category") ?? "",
       approved: r.get("approved"),
+      pullNumber: (r.get("pullNumber") as any)?.toNumber?.() ?? r.get("pullNumber") ?? undefined,
+      source: r.get("source") ?? undefined,
       score: 1,
     }));
   } catch (err) {

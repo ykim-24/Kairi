@@ -88,6 +88,27 @@ export async function updateApproval(
   }
 }
 
+export async function clearRepoLearning(repo: string): Promise<number> {
+  if (!_client) return 0;
+
+  try {
+    const result = await _client.delete(_collection, {
+      wait: true,
+      filter: {
+        must: [{ key: "repo", match: { value: repo } }],
+      },
+    });
+    const deleted = typeof result === "object" && result !== null
+      ? (result as any).status === "completed" ? 1 : 0
+      : 0;
+    log.info({ repo }, "Cleared repo learning data from Qdrant");
+    return deleted;
+  } catch (err) {
+    log.warn({ err, repo }, "Failed to clear repo learning data from Qdrant");
+    return 0;
+  }
+}
+
 export async function searchSimilar(
   query: string,
   repo: string,
