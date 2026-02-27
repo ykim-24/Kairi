@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [feat/review-gate-dashboard]
+    branches: [main]
 
 jobs:
   deploy:
