@@ -55,6 +55,35 @@ export async function initMetricsDb(connectionString?: string): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_review_repo_ts ON review_metrics(repo, timestamp);
       CREATE INDEX IF NOT EXISTS idx_feedback_repo_ts ON feedback_metrics(repo, timestamp);
       CREATE INDEX IF NOT EXISTS idx_feedback_interaction ON feedback_metrics(interaction_id);
+
+      CREATE TABLE IF NOT EXISTS feature_flags (
+        key TEXT PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT false,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      INSERT INTO feature_flags (key, enabled)
+      VALUES ('sync_enabled', false)
+      ON CONFLICT (key) DO NOTHING;
+
+      INSERT INTO feature_flags (key, enabled)
+      VALUES ('review_gate', false)
+      ON CONFLICT (key) DO NOTHING;
+
+      CREATE TABLE IF NOT EXISTS pending_reviews (
+        id SERIAL PRIMARY KEY,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        repo TEXT NOT NULL,
+        pull_number INTEGER NOT NULL,
+        head_sha TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        installation_id INTEGER NOT NULL,
+        result_json JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        resolved_at TIMESTAMPTZ
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_pending_reviews_status ON pending_reviews(status);
     `);
     log.info("Metrics PostgreSQL tables initialized");
   } finally {
@@ -339,6 +368,100 @@ export async function getRepoBreakdown(): Promise<RepoMetrics[]> {
   }
 
   return results;
+}
+
+// ─── Feature flags ───
+
+export async function getFeatureFlag(key: string): Promise<boolean> {
+  if (!_pool) return false;
+  try {
+    const { rows } = await _pool.query(
+      "SELECT enabled FROM feature_flags WHERE key = $1",
+      [key]
+    );
+    return rows.length > 0 ? rows[0].enabled : false;
+  } catch (err) {
+    log.warn({ err, key }, "Failed to read feature flag");
+    return false;
+  }
+}
+
+export async function setFeatureFlag(
+  key: string,
+  enabled: boolean
+): Promise<void> {
+  if (!_pool) return;
+  try {
+    await _pool.query(
+      `INSERT INTO feature_flags (key, enabled, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET enabled = $2, updated_at = NOW()`,
+      [key, enabled]
+    );
+  } catch (err) {
+    log.warn({ err, key }, "Failed to set feature flag");
+  }
+}
+
+// ─── Pending reviews (review gate) ───
+
+export interface PendingReviewRow {
+  id: number;
+  created_at: string;
+  repo: string;
+  pull_number: number;
+  head_sha: string;
+  owner: string;
+  installation_id: number;
+  result_json: import("../review/types.js").ReviewResult;
+  status: string;
+  resolved_at: string | null;
+}
+
+export async function insertPendingReview(
+  repo: string,
+  pullNumber: number,
+  headSha: string,
+  owner: string,
+  installationId: number,
+  result: import("../review/types.js").ReviewResult
+): Promise<number> {
+  if (!_pool) throw new Error("Database not initialized");
+  const { rows } = await _pool.query(
+    `INSERT INTO pending_reviews (repo, pull_number, head_sha, owner, installation_id, result_json)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id`,
+    [repo, pullNumber, headSha, owner, installationId, JSON.stringify(result)]
+  );
+  return rows[0].id;
+}
+
+export async function listPendingReviews(
+  status?: string
+): Promise<PendingReviewRow[]> {
+  if (!_pool) return [];
+  const where = status ? "WHERE status = $1" : "";
+  const params = status ? [status] : [];
+  const { rows } = await _pool.query(
+    `SELECT * FROM pending_reviews ${where} ORDER BY created_at DESC`,
+    params
+  );
+  return rows;
+}
+
+export async function resolvePendingReview(
+  id: number,
+  resolution: "approved" | "rejected"
+): Promise<PendingReviewRow | null> {
+  if (!_pool) return null;
+  const { rows } = await _pool.query(
+    `UPDATE pending_reviews
+     SET status = $1, resolved_at = NOW()
+     WHERE id = $2 AND status = 'pending'
+     RETURNING *`,
+    [resolution, id]
+  );
+  return rows[0] ?? null;
 }
 
 function emptyAggregation(period: string): AggregatedMetrics {

@@ -72,11 +72,11 @@ export async function getConceptApprovalRates(
   }
 }
 
-/** Which files get the most review comments, and what's the approval rate per file? */
+/** Which files get the most review comments, and what are the top concepts per file? */
 export async function getFileHotspots(
   repo?: string,
   limit = 20
-): Promise<Array<{ file: string; totalReviews: number; approvalRate: number }>> {
+): Promise<Array<{ file: string; commentCount: number; topConcepts: string[] }>> {
   if (!_driver) return [];
   const session = _driver.session();
 
@@ -90,13 +90,15 @@ export async function getFileHotspots(
       MATCH (i:Interaction)-[:REVIEWED]->(f:File)
       WHERE i.approved IS NOT NULL
       ${repoFilter}
-      WITH f.path AS file,
-           count(i) AS total,
-           sum(CASE WHEN i.approved = true THEN 1 ELSE 0 END) AS approved
-      WHERE total >= 2
-      RETURN file, total AS totalReviews,
-             toFloat(approved) / total AS approvalRate
-      ORDER BY total DESC
+      WITH f.path AS file, collect(i) AS interactions, count(i) AS commentCount
+      WHERE commentCount >= 2
+      UNWIND interactions AS i
+      OPTIONAL MATCH (i)-[:RELATES_TO]->(c:Concept)
+      WITH file, commentCount, c.name AS concept, count(*) AS freq
+      ORDER BY freq DESC
+      WITH file, commentCount, collect(concept)[0..3] AS topConcepts
+      RETURN file, commentCount, topConcepts
+      ORDER BY commentCount DESC
       LIMIT $limit
       `,
       { ...(repo ? { repo } : {}), limit: neo4j.int(limit) }
@@ -104,8 +106,8 @@ export async function getFileHotspots(
 
     return result.records.map((r) => ({
       file: r.get("file"),
-      totalReviews: (r.get("totalReviews") as any).toNumber(),
-      approvalRate: r.get("approvalRate"),
+      commentCount: (r.get("commentCount") as any).toNumber(),
+      topConcepts: (r.get("topConcepts") as string[]).filter(Boolean),
     }));
   } catch (err) {
     log.warn({ err }, "Failed to query file hotspots");
