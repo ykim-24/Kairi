@@ -9,20 +9,6 @@ export function useSync() {
   const [syncing, setSyncing] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    api.getSyncFlag().then((f) => setEnabled(f.enabled)).catch(() => {});
-    api.getInstallations().then(setRepos).catch(() => {});
-  }, []);
-
-  const toggleEnabled = useCallback(async (value: boolean) => {
-    try {
-      await api.setSyncFlag(value);
-      setEnabled(value);
-    } catch {
-      // revert on failure
-    }
-  }, []);
-
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -46,6 +32,28 @@ export function useSync() {
       }
     }, 2000);
   }, [stopPolling]);
+
+  // On mount: load flags, repos, and check if a sync is already running
+  useEffect(() => {
+    api.getSyncFlag().then((f) => setEnabled(f.enabled)).catch(() => {});
+    api.getInstallations().then(setRepos).catch(() => {});
+    api.getSyncStatus().then((p) => {
+      setProgress(p);
+      if (p.status === "running") {
+        setSyncing(true);
+        startPolling();
+      }
+    }).catch(() => {});
+  }, [startPolling]);
+
+  const toggleEnabled = useCallback(async (value: boolean) => {
+    try {
+      await api.setSyncFlag(value);
+      setEnabled(value);
+    } catch {
+      // revert on failure
+    }
+  }, []);
 
   const startSync = useCallback(
     async (repo: string, installationId: number) => {
