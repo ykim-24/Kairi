@@ -67,7 +67,7 @@ export async function initMetricsDb(connectionString?: string): Promise<void> {
       ON CONFLICT (key) DO NOTHING;
 
       INSERT INTO feature_flags (key, enabled)
-      VALUES ('review_gate', false)
+      VALUES ('review_gate', true)
       ON CONFLICT (key) DO NOTHING;
 
       CREATE TABLE IF NOT EXISTS pending_reviews (

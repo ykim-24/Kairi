@@ -5,3 +5,4 @@ dist/
 .DS_Store
 coverage/
 *.pem
+dashboard-ui/dist/

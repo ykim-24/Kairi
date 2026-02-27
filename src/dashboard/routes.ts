@@ -1,3 +1,4 @@
+import { readFileSync } from "fs";
 import { Hono } from "hono";
 import {
   getAggregatedMetrics,
@@ -229,8 +230,23 @@ export function createDashboardRouter(): Hono {
 
   // ─── SPA static files ───
 
-  app.use("/*", serveStatic({ root: "./dashboard-ui/dist" }));
-  app.get("/*", serveStatic({ root: "./dashboard-ui/dist", rewriteRequestPath: () => "/index.html" }));
+  app.use("/*", serveStatic({
+    root: "./dashboard-ui/dist",
+    rewriteRequestPath: (path) => {
+      // Strip /dashboard prefix if present (nested routing may keep it)
+      return path.replace(/^\/dashboard/, "") || "/";
+    },
+  }));
+
+  // SPA fallback — only for navigation requests, not assets
+  app.get("/*", (c) => {
+    const path = c.req.path;
+    // Don't serve index.html for API routes or file extensions (assets)
+    if (path.includes("/api/") || path.includes("/auth/") || /\.\w+$/.test(path)) {
+      return c.notFound();
+    }
+    return c.html(readFileSync("./dashboard-ui/dist/index.html", "utf-8"));
+  });
 
   return app;
 }

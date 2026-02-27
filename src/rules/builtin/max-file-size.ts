@@ -23,6 +23,8 @@ export const maxFileSize: Rule = {
         body: `\`${config.severity}\` **max-file-size**: This file adds ${file.additions} lines (threshold: ${maxLines}). Large files are harder to review — consider splitting.`,
         source: "rule",
         severity: config.severity ?? "warning",
+        category: "style",
+        confidence: 1.0,
         ruleId: "max-file-size",
       },
     ];

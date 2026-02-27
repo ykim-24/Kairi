@@ -30,6 +30,8 @@ export const noSecrets: Rule = {
               body: `\`error\` **no-secrets**: Potential ${label} detected. Never commit secrets — use environment variables or a secrets manager.`,
               source: "rule",
               severity: "error",
+              category: "security",
+              confidence: 1.0,
               ruleId: "no-secrets",
             });
             break; // one finding per line is enough

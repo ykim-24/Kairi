@@ -36,26 +36,35 @@ export async function getConceptApprovalRates(
   const session = _driver.session();
 
   try {
-    const repoFilter = repo
-      ? "AND (i)-[:BELONGS_TO]->(:Repo {name: $repo})"
-      : "";
-
-    const result = await session.run(
-      `
-      MATCH (i:Interaction)-[:RELATES_TO]->(c:Concept)
+    const query = repo
+      ? `
+      MATCH (r:Repo {name: $repo})<-[:BELONGS_TO]-(i:Interaction)-[:RELATES_TO]->(c:Concept)
       WHERE i.approved IS NOT NULL
-      ${repoFilter}
       WITH c.name AS concept,
            count(i) AS total,
            sum(CASE WHEN i.approved = true THEN 1 ELSE 0 END) AS approved,
            sum(CASE WHEN i.approved = false THEN 1 ELSE 0 END) AS rejected
-      WHERE total >= 3
+      WHERE total >= 2
       RETURN concept, total, approved, rejected,
              toFloat(approved) / total AS rate
-      ORDER BY rate DESC
-      `,
-      repo ? { repo } : {}
-    );
+      ORDER BY total DESC, rate DESC
+      LIMIT 30
+      `
+      : `
+      MATCH (i:Interaction)-[:RELATES_TO]->(c:Concept)
+      WHERE i.approved IS NOT NULL
+      WITH c.name AS concept,
+           count(i) AS total,
+           sum(CASE WHEN i.approved = true THEN 1 ELSE 0 END) AS approved,
+           sum(CASE WHEN i.approved = false THEN 1 ELSE 0 END) AS rejected
+      WHERE total >= 2
+      RETURN concept, total, approved, rejected,
+             toFloat(approved) / total AS rate
+      ORDER BY total DESC, rate DESC
+      LIMIT 30
+      `;
+
+    const result = await session.run(query, repo ? { repo } : {});
 
     return result.records.map((r) => ({
       concept: r.get("concept"),
@@ -81,15 +90,10 @@ export async function getFileHotspots(
   const session = _driver.session();
 
   try {
-    const repoFilter = repo
-      ? "AND (i)-[:BELONGS_TO]->(:Repo {name: $repo})"
-      : "";
-
-    const result = await session.run(
-      `
-      MATCH (i:Interaction)-[:REVIEWED]->(f:File)
+    const query = repo
+      ? `
+      MATCH (r:Repo {name: $repo})<-[:BELONGS_TO]-(i:Interaction)-[:REVIEWED]->(f:File)
       WHERE i.approved IS NOT NULL
-      ${repoFilter}
       WITH f.path AS file, collect(i) AS interactions, count(i) AS commentCount
       WHERE commentCount >= 2
       UNWIND interactions AS i
@@ -100,7 +104,24 @@ export async function getFileHotspots(
       RETURN file, commentCount, topConcepts
       ORDER BY commentCount DESC
       LIMIT $limit
-      `,
+      `
+      : `
+      MATCH (i:Interaction)-[:REVIEWED]->(f:File)
+      WHERE i.approved IS NOT NULL
+      WITH f.path AS file, collect(i) AS interactions, count(i) AS commentCount
+      WHERE commentCount >= 2
+      UNWIND interactions AS i
+      OPTIONAL MATCH (i)-[:RELATES_TO]->(c:Concept)
+      WITH file, commentCount, c.name AS concept, count(*) AS freq
+      ORDER BY freq DESC
+      WITH file, commentCount, collect(concept)[0..3] AS topConcepts
+      RETURN file, commentCount, topConcepts
+      ORDER BY commentCount DESC
+      LIMIT $limit
+      `;
+
+    const result = await session.run(
+      query,
       { ...(repo ? { repo } : {}), limit: neo4j.int(limit) }
     );
 
@@ -126,16 +147,13 @@ export async function getConceptGraph(
   const session = _driver.session();
 
   try {
-    const repoFilter = repo
-      ? "AND (i)-[:BELONGS_TO]->(:Repo {name: $repo})"
-      : "";
-
-    const result = await session.run(
-      `
-      MATCH (c1:Concept)<-[:RELATES_TO]-(i:Interaction)-[:RELATES_TO]->(c2:Concept)
+    const query = repo
+      ? `
+      MATCH (r:Repo {name: $repo})<-[:BELONGS_TO]-(i:Interaction)
+      WHERE i.approved IS NOT NULL
+      WITH i
+      MATCH (c1:Concept)<-[:RELATES_TO]-(i)-[:RELATES_TO]->(c2:Concept)
       WHERE c1.name < c2.name
-        AND i.approved IS NOT NULL
-        ${repoFilter}
       WITH c1.name AS source, c2.name AS target,
            count(i) AS weight,
            avg(CASE WHEN i.approved THEN 1.0 ELSE 0.0 END) AS avgApproval
@@ -143,7 +161,22 @@ export async function getConceptGraph(
       RETURN source, target, weight, avgApproval
       ORDER BY weight DESC
       LIMIT 50
-      `,
+      `
+      : `
+      MATCH (c1:Concept)<-[:RELATES_TO]-(i:Interaction)-[:RELATES_TO]->(c2:Concept)
+      WHERE c1.name < c2.name
+        AND i.approved IS NOT NULL
+      WITH c1.name AS source, c2.name AS target,
+           count(i) AS weight,
+           avg(CASE WHEN i.approved THEN 1.0 ELSE 0.0 END) AS avgApproval
+      WHERE weight >= $minCooccurrence
+      RETURN source, target, weight, avgApproval
+      ORDER BY weight DESC
+      LIMIT 50
+      `;
+
+    const result = await session.run(
+      query,
       { ...(repo ? { repo } : {}), minCooccurrence: neo4j.int(minCooccurrence) }
     );
 
@@ -169,21 +202,23 @@ export async function getKnowledgeBaseStats(
   const session = _driver.session();
 
   try {
-    const repoFilter = repo
-      ? "WHERE (i)-[:BELONGS_TO]->(:Repo {name: $repo})"
-      : "";
-
-    const result = await session.run(
-      `
-      MATCH (i:Interaction)
-      ${repoFilter}
+    const query = repo
+      ? `
+      MATCH (r:Repo {name: $repo})<-[:BELONGS_TO]-(i:Interaction)
       RETURN count(i) AS total,
              sum(CASE WHEN i.approved = true THEN 1 ELSE 0 END) AS approved,
              sum(CASE WHEN i.approved = false THEN 1 ELSE 0 END) AS rejected,
              sum(CASE WHEN i.approved IS NULL THEN 1 ELSE 0 END) AS pending
-      `,
-      repo ? { repo } : {}
-    );
+      `
+      : `
+      MATCH (i:Interaction)
+      RETURN count(i) AS total,
+             sum(CASE WHEN i.approved = true THEN 1 ELSE 0 END) AS approved,
+             sum(CASE WHEN i.approved = false THEN 1 ELSE 0 END) AS rejected,
+             sum(CASE WHEN i.approved IS NULL THEN 1 ELSE 0 END) AS pending
+      `;
+
+    const result = await session.run(query, repo ? { repo } : {});
 
     const r = result.records[0];
     return {

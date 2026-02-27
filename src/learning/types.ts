@@ -21,8 +21,8 @@ export interface ReviewInteraction {
   concepts: string[];
   /** Timestamp */
   timestamp: string;
-  /** Source: rule-engine or llm */
-  source: "rule" | "llm";
+  /** Source: rule-engine, llm, or human reviewer */
+  source: "rule" | "llm" | "human";
   /** The severity assigned */
   severity: "error" | "warning" | "info";
 }
@@ -47,4 +47,7 @@ export interface RetrievedPattern {
   filePath: string;
   category: string;
   score: number;
+  approved?: boolean | null;
+  pullNumber?: number;
+  source?: "rule" | "llm" | "human";
 }

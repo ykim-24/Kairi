@@ -32,6 +32,8 @@ export const requireTests: Rule = {
         body: `\`${ctx.config.severity}\` **require-tests**: Source file modified — ensure test coverage exists for these changes.`,
         source: "rule",
         severity: ctx.config.severity ?? "warning",
+        category: "style",
+        confidence: 1.0,
         ruleId: "require-tests",
       },
     ];

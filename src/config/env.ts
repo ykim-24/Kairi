@@ -19,6 +19,12 @@ const envSchema = z.object({
   NEO4J_USER: z.string().default("neo4j"),
   NEO4J_PASSWORD: z.string().optional(),
 
+  // Dashboard OAuth (optional — dashboard is unprotected if not set)
+  GITHUB_OAUTH_CLIENT_ID: z.string().optional(),
+  GITHUB_OAUTH_CLIENT_SECRET: z.string().optional(),
+  GITHUB_ALLOWED_ORG: z.string().default("myjunior"),
+  SESSION_SECRET: z.string().default("kairi-dev-session-secret"),
+
   // Server
   PORT: z.coerce.number().default(3000),
   LOG_LEVEL: z

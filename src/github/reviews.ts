@@ -21,12 +21,8 @@ export async function postReview(
       body: c.body,
     }));
 
-  const body = `${BOT_REVIEW_TAG}\n\n${result.summary}`;
-
-  const event =
-    result.severity === "error"
-      ? ("REQUEST_CHANGES" as const)
-      : ("COMMENT" as const);
+  // Body already includes the kairi-review tag from body-builder
+  const body = result.bodyMarkdown;
 
   const { data } = await octokit.pulls.createReview({
     owner: ctx.owner,
@@ -34,7 +30,7 @@ export async function postReview(
     pull_number: ctx.pullNumber,
     commit_id: ctx.headSha,
     body,
-    event,
+    event: result.event,
     comments,
   });
 
@@ -42,7 +38,7 @@ export async function postReview(
     {
       pr: ctx.pullNumber,
       reviewId: data.id,
-      event,
+      event: result.event,
       commentCount: comments.length,
     },
     "Posted review"

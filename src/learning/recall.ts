@@ -35,8 +35,9 @@ export async function retrieveLearningContext(
   const conceptResults = await getRelatedInteractions(concepts, repo, 5);
 
   // Stage 3: File history from Neo4j (for files being modified)
+  // Now uses file name + stem matching, so renamed/moved files still connect
   const fileHistoryResults: RetrievedPattern[] = [];
-  for (const file of files.slice(0, 3)) {
+  for (const file of files.slice(0, 5)) {
     const history = await getFileHistory(file.filename, repo, 3);
     fileHistoryResults.push(...history);
   }

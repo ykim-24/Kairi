@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import Markdown from "react-markdown";
 import { api } from "../../api/client";
+import { Spinner } from "../shared/Spinner";
+import { TerminalMarkdown } from "../shared/Markdown";
 import type { PendingReview, DiffFile } from "../../api/types";
 
 export function QueuePage() {
@@ -79,9 +80,7 @@ export function QueuePage() {
     r.result_json.inlineComments.length;
 
   if (loading) {
-    return (
-      <div style={{ color: "var(--muted)", fontSize: 14 }}>Loading...</div>
-    );
+    return <Spinner label="Loading" />;
   }
 
   return (
@@ -133,14 +132,14 @@ export function QueuePage() {
             actions={(r) => (
               <div style={{ display: "flex", gap: 6 }}>
                 <ActionBtn
-                  label="Approve"
-                  color="var(--green, #3fb950)"
+                  label="APPROVE"
+                  color="var(--green, #33ff33)"
                   disabled={actionInFlight === r.id}
                   onClick={() => handleApprove(r.id)}
                 />
                 <ActionBtn
-                  label="Reject"
-                  color="var(--red, #f85149)"
+                  label="REJECT"
+                  color="var(--red, #ff3333)"
                   disabled={actionInFlight === r.id}
                   onClick={() => handleReject(r.id)}
                 />
@@ -249,10 +248,10 @@ function extractCodeContext(
 
 const severityColor = (s: string) =>
   s === "error"
-    ? { bg: "rgba(248,81,73,0.15)", fg: "var(--red, #f85149)" }
+    ? { bg: "rgba(212,122,122,0.12)", fg: "var(--red, #d47a7a)" }
     : s === "warning"
-      ? { bg: "rgba(210,153,34,0.15)", fg: "var(--yellow, #d29922)" }
-      : { bg: "rgba(88,166,255,0.1)", fg: "var(--accent)" };
+      ? { bg: "rgba(212,192,130,0.12)", fg: "var(--yellow, #d4c082)" }
+      : { bg: "rgba(212,130,158,0.08)", fg: "var(--accent)" };
 
 /* ─── Shared table ─── */
 
@@ -331,17 +330,19 @@ function ActionBtn({
       onClick={onClick}
       disabled={disabled}
       style={{
-        background: color,
-        color: "#fff",
-        border: "none",
-        borderRadius: 4,
+        background: "transparent",
+        color,
+        border: `1px solid ${color}`,
+        borderRadius: 0,
         padding: "4px 10px",
         fontSize: 12,
+        fontFamily: "var(--font-mono)",
+        textTransform: "uppercase",
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
       }}
     >
-      {label}
+      [{label}]
     </button>
   );
 }
@@ -407,8 +408,8 @@ function ReviewModal({
     >
       <div
         style={{
-          background: "var(--surface, #161b22)",
-          borderRadius: 10,
+          background: "var(--surface, #1a1200)",
+          borderRadius: 0,
           border: "1px solid var(--border)",
           width: "min(90vw, 900px)",
           maxHeight: "85vh",
@@ -434,14 +435,17 @@ function ReviewModal({
             onClick={onClose}
             style={{
               background: "none",
-              border: "none",
+              border: "1px solid var(--border)",
+              borderRadius: 0,
               color: "var(--muted)",
               cursor: "pointer",
-              fontSize: 18,
+              fontSize: 14,
+              fontFamily: "var(--font-mono)",
               lineHeight: 1,
+              padding: "2px 6px",
             }}
           >
-            ✕
+            [x]
           </button>
         </div>
 
@@ -489,16 +493,16 @@ function ReviewModal({
           >
             {onReject && (
               <ActionBtn
-                label="Reject"
-                color="var(--red, #f85149)"
+                label="REJECT"
+                color="var(--red, #ff3333)"
                 disabled={actionDisabled}
                 onClick={onReject}
               />
             )}
             {onApprove && (
               <ActionBtn
-                label="Approve & Post"
-                color="var(--green, #3fb950)"
+                label="APPROVE & POST"
+                color="var(--green, #33ff33)"
                 disabled={actionDisabled}
                 onClick={onApprove}
               />
@@ -528,74 +532,16 @@ function TabBtn({
         borderBottom: active
           ? "2px solid var(--accent)"
           : "2px solid transparent",
-        color: active ? "var(--fg, #e6edf3)" : "var(--muted)",
+        color: active ? "var(--text)" : "var(--muted)",
         padding: "8px 16px",
         fontSize: 13,
+        fontFamily: "var(--font-mono)",
         fontWeight: active ? 600 : 400,
         cursor: "pointer",
       }}
     >
       {label}
     </button>
-  );
-}
-
-/* ─── Markdown wrapper ─── */
-
-const mdStyles: Record<string, React.CSSProperties> = {
-  wrapper: {
-    fontSize: 13,
-    lineHeight: 1.6,
-  },
-};
-
-function Md({ children }: { children: string }) {
-  return (
-    <div className="md-content" style={mdStyles.wrapper}>
-      <Markdown
-        components={{
-          code({ children, className, ...rest }) {
-            const isBlock = className?.startsWith("language-");
-            if (isBlock) {
-              return (
-                <pre
-                  style={{
-                    background: "var(--bg, #0d1117)",
-                    borderRadius: 4,
-                    padding: 10,
-                    overflow: "auto",
-                    fontSize: 12,
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  <code className={className} {...rest}>
-                    {children}
-                  </code>
-                </pre>
-              );
-            }
-            return (
-              <code
-                style={{
-                  background: "rgba(88,166,255,0.1)",
-                  borderRadius: 3,
-                  padding: "1px 4px",
-                  fontSize: "0.9em",
-                }}
-                {...rest}
-              >
-                {children}
-              </code>
-            );
-          },
-          pre({ children }) {
-            return <>{children}</>;
-          },
-        }}
-      >
-        {children}
-      </Markdown>
-    </div>
   );
 }
 
@@ -613,14 +559,14 @@ function ReviewTab({
       {/* Summary body rendered as markdown */}
       <div
         style={{
-          background: "var(--bg, #0d1117)",
-          borderRadius: 6,
+          background: "var(--bg, #0a0a0a)",
+          borderRadius: 0,
           padding: 16,
           border: "1px solid var(--border)",
           marginBottom: 16,
         }}
       >
-        <Md>{review.result_json.bodyMarkdown}</Md>
+        <TerminalMarkdown>{review.result_json.bodyMarkdown}</TerminalMarkdown>
       </div>
 
       {/* Inline comments with code context */}
@@ -638,8 +584,8 @@ function ReviewTab({
               <div
                 key={i}
                 style={{
-                  background: "var(--bg, #0d1117)",
-                  borderRadius: 6,
+                  background: "var(--bg, #0a0a0a)",
+                  borderRadius: 0,
                   border: "1px solid var(--border)",
                   marginBottom: 10,
                   overflow: "hidden",
@@ -653,12 +599,12 @@ function ReviewTab({
                     alignItems: "center",
                     padding: "8px 12px",
                     borderBottom: "1px solid var(--border)",
-                    background: "rgba(88,166,255,0.04)",
+                    background: "rgba(212,130,158,0.04)",
                   }}
                 >
                   <span
                     style={{
-                      fontFamily: "monospace",
+                      fontFamily: "var(--font-mono)",
                       fontSize: 12,
                       color: "var(--accent)",
                     }}
@@ -669,9 +615,10 @@ function ReviewTab({
                     style={{
                       fontSize: 11,
                       padding: "1px 6px",
-                      borderRadius: 3,
+                      borderRadius: 0,
                       background: sc.bg,
                       color: sc.fg,
+                      border: `1px solid ${sc.fg}`,
                     }}
                   >
                     {c.severity}
@@ -686,7 +633,7 @@ function ReviewTab({
                       padding: "8px 12px",
                       fontSize: 12,
                       lineHeight: 1.5,
-                      fontFamily: "monospace",
+                      fontFamily: "var(--font-mono)",
                       borderBottom: "1px solid var(--border)",
                       background: "rgba(0,0,0,0.15)",
                       overflow: "auto",
@@ -705,7 +652,7 @@ function ReviewTab({
 
                 {/* Comment body as markdown */}
                 <div style={{ padding: "10px 12px" }}>
-                  <Md>{c.body}</Md>
+                  <TerminalMarkdown>{c.body}</TerminalMarkdown>
                 </div>
               </div>
             );
@@ -726,11 +673,7 @@ function DiffTab({
   loading: boolean;
 }) {
   if (loading) {
-    return (
-      <div style={{ color: "var(--muted)", fontSize: 13 }}>
-        Loading diff...
-      </div>
-    );
+    return <Spinner label="Loading diff" />;
   }
 
   if (!diff || diff.length === 0) {
@@ -755,25 +698,25 @@ function DiffTab({
           >
             <span
               style={{
-                fontFamily: "monospace",
+                fontFamily: "var(--font-mono)",
                 fontSize: 13,
                 fontWeight: 600,
               }}
             >
               {f.filename}
             </span>
-            <span style={{ fontSize: 12, color: "var(--green, #3fb950)" }}>
+            <span style={{ fontSize: 12, color: "var(--green, #33ff33)" }}>
               +{f.additions}
             </span>
-            <span style={{ fontSize: 12, color: "var(--red, #f85149)" }}>
+            <span style={{ fontSize: 12, color: "var(--red, #ff3333)" }}>
               -{f.deletions}
             </span>
           </div>
           {f.patch ? (
             <pre
               style={{
-                background: "var(--bg, #0d1117)",
-                borderRadius: 6,
+                background: "var(--bg, #0a0a0a)",
+                borderRadius: 0,
                 padding: 12,
                 fontSize: 12,
                 lineHeight: 1.5,
@@ -787,11 +730,11 @@ function DiffTab({
                   key={i}
                   style={{
                     background: line.startsWith("+")
-                      ? "rgba(63,185,80,0.1)"
+                      ? "rgba(130,212,160,0.08)"
                       : line.startsWith("-")
-                        ? "rgba(248,81,73,0.1)"
+                        ? "rgba(212,122,122,0.08)"
                         : line.startsWith("@@")
-                          ? "rgba(88,166,255,0.08)"
+                          ? "rgba(212,130,158,0.06)"
                           : undefined,
                     color: line.startsWith("@@")
                       ? "var(--accent)"

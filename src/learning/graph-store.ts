@@ -32,6 +32,13 @@ export async function initGraphStore(): Promise<void> {
       await session.run(
         "CREATE CONSTRAINT IF NOT EXISTS FOR (r:Repo) REQUIRE r.name IS UNIQUE"
       );
+      // Indexes for common query filters
+      await session.run(
+        "CREATE INDEX IF NOT EXISTS FOR (i:Interaction) ON (i.approved)"
+      );
+      await session.run(
+        "CREATE INDEX IF NOT EXISTS FOR (i:Interaction) ON (i.timestamp)"
+      );
       log.info("Neo4j graph store initialized with constraints");
     } finally {
       await session.close();
@@ -158,9 +165,8 @@ export async function getRelatedInteractions(
   try {
     const result = await session.run(
       `
-      MATCH (i:Interaction)-[:RELATES_TO]->(c:Concept)
+      MATCH (c:Concept)<-[:RELATES_TO]-(i:Interaction)-[:BELONGS_TO]->(r:Repo {name: $repo})
       WHERE c.name IN $concepts
-        AND (i)-[:BELONGS_TO]->(:Repo {name: $repo})
         AND i.approved IS NOT NULL
       WITH i, collect(c.name) AS matchedConcepts, count(c) AS relevance
       ORDER BY relevance DESC
@@ -208,20 +214,36 @@ export async function getFileHistory(
     const stem = filePath.split("/").pop()?.replace(/\.[^.]+$/, "").toLowerCase() ?? "";
     const stemConcept = stem.length > 2 ? `stem:${stem}` : null;
 
+    // Use UNION to avoid expensive OR pattern matches — each branch starts from an indexed node
+    const stemBranch = stemConcept
+      ? `
+      UNION
+      MATCH (sc:Concept {name: $stemConcept})<-[:RELATES_TO]-(i:Interaction)-[:BELONGS_TO]->(r:Repo {name: $repo})
+      WHERE i.approved IS NOT NULL
+      MATCH (i)-[:REVIEWED]->(f:File)
+      RETURN i.reviewComment AS reviewComment, i.diffContext AS diffContext,
+             i.approved AS approved, i.category AS category, f.path AS filePath,
+             i.pullNumber AS pullNumber, i.source AS source, i.timestamp AS ts
+      `
+      : "";
+
     const result = await session.run(
       `
-      MATCH (i:Interaction)-[:BELONGS_TO]->(:Repo {name: $repo})
+      MATCH (f0:File {path: $filePath})<-[:REVIEWED]-(i:Interaction)-[:BELONGS_TO]->(r:Repo {name: $repo})
       WHERE i.approved IS NOT NULL
-      AND (
-        (i)-[:REVIEWED]->(:File {path: $filePath})
-        OR (i)-[:RELATES_TO]->(:Concept {name: $fileConcept})
-        ${stemConcept ? "OR (i)-[:RELATES_TO]->(:Concept {name: $stemConcept})" : ""}
-      )
       MATCH (i)-[:REVIEWED]->(f:File)
-      RETURN DISTINCT i.reviewComment AS reviewComment, i.diffContext AS diffContext,
+      RETURN i.reviewComment AS reviewComment, i.diffContext AS diffContext,
              i.approved AS approved, i.category AS category, f.path AS filePath,
-             i.pullNumber AS pullNumber, i.source AS source
-      ORDER BY i.timestamp DESC
+             i.pullNumber AS pullNumber, i.source AS source, i.timestamp AS ts
+      UNION
+      MATCH (fc:Concept {name: $fileConcept})<-[:RELATES_TO]-(i:Interaction)-[:BELONGS_TO]->(r:Repo {name: $repo})
+      WHERE i.approved IS NOT NULL
+      MATCH (i)-[:REVIEWED]->(f:File)
+      RETURN i.reviewComment AS reviewComment, i.diffContext AS diffContext,
+             i.approved AS approved, i.category AS category, f.path AS filePath,
+             i.pullNumber AS pullNumber, i.source AS source, i.timestamp AS ts
+      ${stemBranch}
+      ORDER BY ts DESC
       LIMIT $limit
       `,
       {

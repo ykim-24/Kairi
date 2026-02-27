@@ -60,6 +60,15 @@ export function extractConcepts(
   const concepts = new Set<string>();
 
   for (const file of files) {
+    // Full file path as concept — direct file-level recall across PRs
+    concepts.add(`file:${file.filename}`);
+
+    // File name stem (e.g. "auth-service" from "src/services/auth-service.ts")
+    const stem = extractFileStem(file.filename);
+    if (stem && stem.length > 2) {
+      concepts.add(`stem:${stem}`);
+    }
+
     // From file extensions
     const ext = "." + file.filename.split(".").pop()?.toLowerCase();
     const extConcepts = EXTENSION_CONCEPTS[ext];
@@ -87,8 +96,15 @@ export function extractConcepts(
       seen.add(word);
       concepts.add(word);
     }
-    if (concepts.size >= 10) break;
+    if (concepts.size >= 15) break;
   }
 
-  return Array.from(concepts).slice(0, 10);
+  return Array.from(concepts).slice(0, 15);
+}
+
+/** Extracts the file name without extension, e.g. "auth-service" from "src/services/auth-service.ts" */
+function extractFileStem(filename: string): string {
+  const basename = filename.split("/").pop() ?? "";
+  const dotIndex = basename.indexOf(".");
+  return dotIndex > 0 ? basename.slice(0, dotIndex).toLowerCase() : basename.toLowerCase();
 }
