@@ -1,0 +1,21 @@
+name: Deploy
+
+on:
+  push:
+    branches: [feat/review-gate-dashboard]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            cd ~/kairi
+            git pull origin feat/review-gate-dashboard
+            docker compose -f docker-compose.prod.yml up -d --build kairi
+            docker image prune -f
