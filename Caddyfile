@@ -1,0 +1,3 @@
+{$DOMAIN} {
+	reverse_proxy kairi:5100
+}

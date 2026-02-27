@@ -3,6 +3,7 @@ import { Webhooks } from "@octokit/webhooks";
 import { loadEnv } from "../config/env.js";
 import { handlePullRequest } from "./events.js";
 import { handleReviewFeedback } from "../learning/feedback.js";
+import { handleIssueComment, handleInlineComment } from "./comment-handler.js";
 import { createChildLogger } from "../utils/logger.js";
 
 const log = createChildLogger({ module: "webhook-handler" });
@@ -17,7 +18,20 @@ export function createWebhookRouter(): Hono {
 
   // Feedback signals for learning system
   webhooks.on("pull_request_review", handleReviewFeedback as any);
-  webhooks.on("pull_request_review_comment", handleReviewFeedback as any);
+
+  // Inline review comments: feedback handler for Kairi's own, comment handler for humans
+  // Both check their own preconditions so only one acts per event
+  webhooks.on("pull_request_review_comment", async (event: any) => {
+    const body = event.payload?.comment?.body ?? "";
+    if (body.includes("<!-- kairi-review -->") || body.includes("<!-- kairi-id:")) {
+      await (handleReviewFeedback as any)(event);
+    } else {
+      await (handleInlineComment as any)(event);
+    }
+  });
+
+  // Learn from human comments on PR conversation threads
+  webhooks.on("issue_comment", handleIssueComment as any);
 
   app.post("/", async (c) => {
     const id = c.req.header("x-github-delivery") ?? "";

@@ -139,11 +139,12 @@ export function SyncPage() {
           disabled={!enabled || !selectedValue || syncing}
           style={{
             background: enabled ? "var(--accent)" : "var(--border)",
-            color: enabled ? "#fff" : "var(--muted)",
+            color: enabled ? "var(--bg)" : "var(--muted)",
             border: "none",
-            borderRadius: 6,
+            borderRadius: 0,
             padding: "8px 16px",
             fontSize: 14,
+            fontFamily: "var(--font-mono)",
             whiteSpace: "nowrap",
           }}
         >
@@ -229,12 +230,13 @@ export function SyncPage() {
           onClick={handleClear}
           disabled={!clearRepo || clearing}
           style={{
-            background: clearRepo ? "var(--red, #f85149)" : "var(--border)",
-            color: clearRepo ? "#fff" : "var(--muted)",
+            background: clearRepo ? "var(--red, #ff3333)" : "var(--border)",
+            color: clearRepo ? "var(--bg)" : "var(--muted)",
             border: "none",
-            borderRadius: 6,
+            borderRadius: 0,
             padding: "8px 16px",
             fontSize: 14,
+            fontFamily: "var(--font-mono)",
             whiteSpace: "nowrap",
             cursor: !clearRepo || clearing ? "not-allowed" : "pointer",
             opacity: clearing ? 0.5 : 1,
@@ -250,7 +252,7 @@ export function SyncPage() {
             fontSize: 13,
             color: clearResult.startsWith("Failed")
               ? "var(--red)"
-              : "var(--green, #3fb950)",
+              : "var(--green, #33ff33)",
           }}
         >
           {clearResult}

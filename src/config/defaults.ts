@@ -40,6 +40,8 @@ export const DEFAULT_CONFIG: RepoConfig = {
     postSummary: true,
     dismissOnUpdate: true,
     labelOnReview: false,
+    inlineThreshold: 0.7,
+    maxInlineComments: 5,
   },
   learning: {
     enabled: true,

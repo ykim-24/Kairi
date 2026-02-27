@@ -22,6 +22,8 @@ export const noTodo: Rule = {
             body: `\`${config.severity}\` **no-todo**: \`${match[1]}\` comment found. Track this in an issue instead of leaving it in code.`,
             source: "rule",
             severity: config.severity ?? "info",
+            category: "todo",
+            confidence: 1.0,
             ruleId: "no-todo",
           });
         }

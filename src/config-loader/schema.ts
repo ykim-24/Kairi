@@ -43,6 +43,8 @@ const repoConfigSchema = z.object({
       postSummary: z.boolean().default(true),
       dismissOnUpdate: z.boolean().default(true),
       labelOnReview: z.boolean().default(false),
+      inlineThreshold: z.number().min(0).max(1).default(0.7),
+      maxInlineComments: z.number().default(5),
     })
     .default({}),
   learning: z

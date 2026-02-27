@@ -19,6 +19,8 @@ export const noConsoleLog: Rule = {
             body: `\`${config.severity}\` **no-console-log**: \`console.*\` statement detected. Consider removing or replacing with a proper logger.`,
             source: "rule",
             severity: config.severity ?? "warning",
+            category: "style",
+            confidence: 1.0,
             ruleId: "no-console-log",
           });
         }

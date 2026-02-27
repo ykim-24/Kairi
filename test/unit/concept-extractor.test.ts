@@ -34,7 +34,7 @@ describe("concept-extractor", () => {
     expect(concepts.some((c) => c.length > 4)).toBe(true);
   });
 
-  it("caps at 10 concepts", () => {
+  it("caps at 15 concepts", () => {
     const files = [
       parsePatch("src/api/routes/auth/middleware/hooks/components/test.tsx", "+x", "modified"),
     ];
@@ -43,6 +43,16 @@ describe("concept-extractor", () => {
       "performance security authentication routing middleware hooks components"
     );
 
-    expect(concepts.length).toBeLessThanOrEqual(10);
+    expect(concepts.length).toBeLessThanOrEqual(15);
+  });
+
+  it("extracts file name and path as concepts", () => {
+    const files = [
+      parsePatch("src/services/auth-service.ts", "+const x = 1;", "modified"),
+    ];
+    const concepts = extractConcepts(files, "auth check");
+
+    expect(concepts).toContain("file:src/services/auth-service.ts");
+    expect(concepts).toContain("stem:auth-service");
   });
 });

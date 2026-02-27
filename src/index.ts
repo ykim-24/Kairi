@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { loadEnv } from "./config/env.js";
 import { createWebhookRouter } from "./webhook/handler.js";
 import { createDashboardRouter } from "./dashboard/routes.js";
+import { createAuthRoutes, requireAuth, isAuthEnabled } from "./dashboard/auth.js";
 import { initMetricsDb, closeMetricsDb } from "./metrics/pg-store.js";
 import { initGraphMetrics, shutdownGraphMetrics } from "./metrics/graph-metrics.js";
 import { getLogger } from "./utils/logger.js";
@@ -15,7 +16,15 @@ app.get("/health", (c) =>
 );
 
 app.route("/webhook", createWebhookRouter());
-app.route("/dashboard", createDashboardRouter());
+
+// Dashboard with optional GitHub OAuth
+const dashboard = new Hono();
+if (isAuthEnabled()) {
+  dashboard.use("/*", requireAuth());
+  dashboard.route("/", createAuthRoutes());
+}
+dashboard.route("/", createDashboardRouter());
+app.route("/dashboard", dashboard);
 
 async function main() {
   const env = loadEnv();
