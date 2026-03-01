@@ -17,7 +17,7 @@ const components: Components = {
             margin: 0,
           }}
         >
-          # {children}
+          {children}
         </h1>
         <div style={{ color: "var(--border)", fontSize: 14 }}>
           ═══════════════════════════════════════
@@ -36,7 +36,7 @@ const components: Components = {
             margin: 0,
           }}
         >
-          ## {children}
+          {children}
         </h2>
         <div style={{ color: "var(--border)", fontSize: 14 }}>
           ───────────────────────────────────
@@ -50,12 +50,12 @@ const components: Components = {
         style={{
           fontSize: 14,
           fontWeight: 600,
-          color: "var(--text)",
+          color: "var(--accent)",
           marginBottom: 6,
           marginTop: 12,
         }}
       >
-        ### {children}
+        {children}
       </h3>
     );
   },
@@ -131,7 +131,7 @@ const components: Components = {
             color: "var(--muted)",
           }}
         >
-          *
+          ›
         </span>
         {children}
       </li>
