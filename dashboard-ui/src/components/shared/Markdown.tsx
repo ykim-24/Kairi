@@ -116,19 +116,34 @@ const components: Components = {
   },
   ul({ children }) {
     return (
-      <ul style={{ listStyle: "none", paddingLeft: 0, margin: "6px 0" }}>
+      <ul style={{ listStyle: "none", paddingLeft: 0, margin: "8px 0" }}>
         {children}
       </ul>
     );
   },
+  ol({ children }) {
+    return (
+      <ol style={{ paddingLeft: 20, margin: "8px 0" }}>
+        {children}
+      </ol>
+    );
+  },
   li({ children }) {
     return (
-      <li style={{ paddingLeft: 16, position: "relative", marginBottom: 2 }}>
+      <li
+        style={{
+          paddingLeft: 16,
+          position: "relative",
+          marginBottom: 10,
+          paddingBottom: 10,
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
         <span
           style={{
             position: "absolute",
             left: 0,
-            color: "var(--muted)",
+            color: "var(--accent)",
           }}
         >
           ›
