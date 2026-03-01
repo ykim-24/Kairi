@@ -23,7 +23,7 @@ export async function enrichFindings(
     try {
       const file = files.find((f) => f.filename === finding.path);
       const dummyFiles = file ? [file] : [];
-      const concepts = extractConcepts(dummyFiles, finding.body);
+      const concepts = await extractConcepts(dummyFiles, finding.body);
 
       const [related, history] = await Promise.all([
         getRelatedInteractions(concepts, repo, 3),
@@ -35,19 +35,19 @@ export async function enrichFindings(
       // Check for approved patterns (positive signals) — cite the source
       const approvedRelated = related.filter((r) => r.approved === true);
       if (approvedRelated.length > 0) {
-        contextParts.push(formatApprovedContext(approvedRelated));
+        contextParts.push(formatApprovedContext(approvedRelated, repo));
       }
 
       // Check for rejected patterns (negative signals) — cite where dismissed
       const rejectedRelated = related.filter((r) => r.approved === false);
       if (rejectedRelated.length > 0) {
-        contextParts.push(formatRejectedContext(rejectedRelated));
+        contextParts.push(formatRejectedContext(rejectedRelated, repo));
       }
 
       // File history context with PR references
       const approvedHistory = history.filter((h) => h.approved === true);
       if (approvedHistory.length > 0 && contextParts.length === 0) {
-        contextParts.push(formatHistoryContext(approvedHistory, finding.path));
+        contextParts.push(formatHistoryContext(approvedHistory, finding.path, repo));
       }
 
       enriched.push({
@@ -63,45 +63,37 @@ export async function enrichFindings(
   return enriched;
 }
 
-function formatApprovedContext(patterns: RetrievedPattern[]): string {
-  const refs = patterns.map((p) => {
-    const parts: string[] = [`\`${p.filePath}\``];
-    if (p.pullNumber) parts.push(`PR #${p.pullNumber}`);
-    if (p.source === "human") parts.push("(human comment)");
-    return parts.join(" in ");
-  });
-  const uniqueRefs = [...new Set(refs)];
-  return `Past reviews: Similar issues in ${uniqueRefs.join(", ")} were flagged and fixed.`;
+function prLink(repo: string, prNumber: number): string {
+  return `[#${prNumber}](https://github.com/${repo}/pull/${prNumber})`;
 }
 
-function formatRejectedContext(patterns: RetrievedPattern[]): string {
-  const prRefs = patterns
-    .filter((p) => p.pullNumber)
-    .map((p) => `#${p.pullNumber}`);
-  const uniquePRs = [...new Set(prRefs)];
-  if (uniquePRs.length > 0) {
-    return `Note: Similar comments were dismissed in ${uniquePRs.join(", ")}.`;
-  }
-  return "Note: Similar comments were previously dismissed in past reviews.";
+function formatApprovedContext(patterns: RetrievedPattern[], repo: string): string {
+  const lines = patterns.map((p) => {
+    const pr = p.pullNumber ? ` (${prLink(repo, p.pullNumber)})` : "";
+    const snippet = p.reviewComment.slice(0, 120).trim();
+    return `- \`${p.filePath}\`${pr}: "${snippet}"`;
+  });
+  return `Similar feedback was accepted in past reviews:\n${lines.join("\n")}`;
+}
+
+function formatRejectedContext(patterns: RetrievedPattern[], repo: string): string {
+  const lines = patterns.map((p) => {
+    const pr = p.pullNumber ? ` (${prLink(repo, p.pullNumber)})` : "";
+    const snippet = p.reviewComment.slice(0, 120).trim();
+    return `- \`${p.filePath}\`${pr}: "${snippet}"`;
+  });
+  return `Similar comments were dismissed in past reviews:\n${lines.join("\n")}`;
 }
 
 function formatHistoryContext(
   patterns: RetrievedPattern[],
-  filePath: string
+  filePath: string,
+  repo: string
 ): string {
-  const prRefs = patterns
-    .filter((p) => p.pullNumber)
-    .map((p) => `#${p.pullNumber}`);
-  const uniquePRs = [...new Set(prRefs)];
-  const humanCount = patterns.filter((p) => p.source === "human").length;
-
-  let ctx = `This file has ${patterns.length} past review(s) with accepted feedback`;
-  if (uniquePRs.length > 0) {
-    ctx += ` from ${uniquePRs.join(", ")}`;
-  }
-  if (humanCount > 0) {
-    ctx += ` (${humanCount} from human reviewers)`;
-  }
-  ctx += ".";
-  return ctx;
+  const lines = patterns.map((p) => {
+    const pr = p.pullNumber ? ` (${prLink(repo, p.pullNumber)})` : "";
+    const snippet = p.reviewComment.slice(0, 120).trim();
+    return `- ${pr}: "${snippet}"`;
+  });
+  return `Past feedback on \`${filePath}\`:\n${lines.join("\n")}`;
 }

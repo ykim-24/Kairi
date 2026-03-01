@@ -73,6 +73,26 @@ export function QueuePage() {
     }
   };
 
+  const handleReprocess = async (id: number) => {
+    setActionInFlight(id);
+    try {
+      const res = await api.reprocessPendingReview(id);
+      if (res.ok) {
+        // Remove old review from list — new one will appear on next refresh
+        setReviews((prev) => prev.filter((r) => r.id !== id));
+        if (modalReview?.id === id) setModalReview(null);
+        // Poll for the new review to appear
+        setTimeout(fetchData, 3000);
+        setTimeout(fetchData, 8000);
+        setTimeout(fetchData, 15000);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setActionInFlight(null);
+    }
+  };
+
   const pendingReviews = reviews.filter((r) => r.status === "pending");
   const resolvedReviews = reviews.filter((r) => r.status !== "pending");
 
@@ -132,6 +152,12 @@ export function QueuePage() {
             actions={(r) => (
               <div style={{ display: "flex", gap: 6 }}>
                 <ActionBtn
+                  label="REPROCESS"
+                  color="var(--yellow, #ffcc00)"
+                  disabled={actionInFlight === r.id}
+                  onClick={() => handleReprocess(r.id)}
+                />
+                <ActionBtn
                   label="APPROVE"
                   color="var(--green, #33ff33)"
                   disabled={actionInFlight === r.id}
@@ -162,15 +188,23 @@ export function QueuePage() {
             onRowClick={setModalReview}
             findingsCount={findingsCount}
             actions={(r) => (
-              <span
-                style={{
-                  color:
-                    r.status === "approved" ? "var(--green)" : "var(--red)",
-                  fontWeight: 600,
-                }}
-              >
-                {r.status}
-              </span>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <span
+                  style={{
+                    color:
+                      r.status === "approved" ? "var(--green)" : "var(--red)",
+                    fontWeight: 600,
+                  }}
+                >
+                  {r.status}
+                </span>
+                <ActionBtn
+                  label="REPROCESS"
+                  color="var(--yellow, #ffcc00)"
+                  disabled={actionInFlight === r.id}
+                  onClick={() => handleReprocess(r.id)}
+                />
+              </div>
             )}
           />
         </div>
@@ -191,6 +225,7 @@ export function QueuePage() {
               ? () => handleReject(modalReview.id)
               : undefined
           }
+          onReprocess={() => handleReprocess(modalReview.id)}
           actionDisabled={actionInFlight === modalReview.id}
         />
       )}
@@ -354,12 +389,14 @@ function ReviewModal({
   onClose,
   onApprove,
   onReject,
+  onReprocess,
   actionDisabled,
 }: {
   review: PendingReview;
   onClose: () => void;
   onApprove?: () => void;
   onReject?: () => void;
+  onReprocess?: () => void;
   actionDisabled: boolean;
 }) {
   const [tab, setTab] = useState<"review" | "diff">("review");
@@ -481,34 +518,40 @@ function ReviewModal({
         </div>
 
         {/* Footer with actions */}
-        {(onApprove || onReject) && (
-          <div
-            style={{
-              borderTop: "1px solid var(--border)",
-              padding: "12px 20px",
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: 8,
-            }}
-          >
-            {onReject && (
-              <ActionBtn
-                label="REJECT"
-                color="var(--red, #ff3333)"
-                disabled={actionDisabled}
-                onClick={onReject}
-              />
-            )}
-            {onApprove && (
-              <ActionBtn
-                label="APPROVE & POST"
-                color="var(--green, #33ff33)"
-                disabled={actionDisabled}
-                onClick={onApprove}
-              />
-            )}
-          </div>
-        )}
+        <div
+          style={{
+            borderTop: "1px solid var(--border)",
+            padding: "12px 20px",
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 8,
+          }}
+        >
+          {onReprocess && (
+            <ActionBtn
+              label="REPROCESS"
+              color="var(--yellow, #ffcc00)"
+              disabled={actionDisabled}
+              onClick={onReprocess}
+            />
+          )}
+          {onReject && (
+            <ActionBtn
+              label="REJECT"
+              color="var(--red, #ff3333)"
+              disabled={actionDisabled}
+              onClick={onReject}
+            />
+          )}
+          {onApprove && (
+            <ActionBtn
+              label="APPROVE & POST"
+              color="var(--green, #33ff33)"
+              disabled={actionDisabled}
+              onClick={onApprove}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

@@ -31,7 +31,7 @@ export async function retrieveLearningContext(
   const semanticResults = await searchSimilar(query, repo, 10);
 
   // Stage 2: Concept-based search via Neo4j
-  const concepts = extractConcepts(files, query);
+  const concepts = await extractConcepts(files, query);
   const conceptResults = await getRelatedInteractions(concepts, repo, 5);
 
   // Stage 3: File history from Neo4j (for files being modified)

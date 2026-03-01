@@ -1,22 +1,20 @@
 import type { ReviewFinding } from "./types.js";
 
-const SEVERITY_EMOJI: Record<string, string> = {
-  error: "\ud83d\udd34",
-  warning: "\ud83d\udfe1",
-  info: "\u2139\ufe0f",
+const SEVERITY_LABEL: Record<string, string> = {
+  error: "Error",
+  warning: "Warning",
+  info: "Info",
 };
 
 /**
- * Formats a ReviewFinding into a rich inline comment body for GitHub.
- * Includes severity emoji, category, confidence, suggestion block, and graph context.
+ * Formats a ReviewFinding into an inline comment body for GitHub.
  */
 export function formatInlineComment(finding: ReviewFinding): string {
   const parts: string[] = [];
 
-  // Header: emoji + category + confidence
-  const emoji = SEVERITY_EMOJI[finding.severity] ?? "";
-  const label = finding.severity.charAt(0).toUpperCase() + finding.severity.slice(1);
-  parts.push(`**${emoji} ${label}** — ${finding.category} (confidence: ${finding.confidence.toFixed(2)})`);
+  // Header: severity + category + confidence
+  const label = SEVERITY_LABEL[finding.severity] ?? finding.severity;
+  parts.push(`**${label}** — ${finding.category} (confidence: ${finding.confidence.toFixed(2)})`);
   parts.push("");
 
   // Body text
@@ -30,10 +28,10 @@ export function formatInlineComment(finding: ReviewFinding): string {
     parts.push("```");
   }
 
-  // Graph context
+  // Graph context — past review references
   if (finding.graphContext) {
     parts.push("");
-    parts.push(`> \ud83d\udcda *${finding.graphContext}*`);
+    parts.push(`> ${finding.graphContext}`);
   }
 
   return parts.join("\n");

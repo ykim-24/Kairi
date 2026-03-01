@@ -154,7 +154,7 @@ async function processPR(
         additions: 0,
         deletions: 0,
       };
-      const concepts = extractConcepts(
+      const concepts = await extractConcepts(
         filePath ? [fakeParsedFile] : [],
         comment.body
       );
@@ -196,7 +196,7 @@ async function processPR(
         continue;
 
       const stableId = stableUUID(`sync-${repo}-issue-${comment.id}`);
-      const concepts = extractConcepts([], comment.body);
+      const concepts = await extractConcepts([], comment.body);
 
       const interaction: ReviewInteraction = {
         id: stableId,

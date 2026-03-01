@@ -60,15 +60,15 @@ describe("buildReviewBody", () => {
       metadata: defaultMetadata,
     });
 
-    expect(body).toContain("### Errors (must fix)");
+    expect(body).toContain("### Errors");
     expect(body).toContain("### Warnings");
-    expect(body).toContain("### Info / Suggestions");
+    expect(body).toContain("### Suggestions");
     expect(body).toContain("Error issue");
     expect(body).toContain("Warning issue");
     expect(body).toContain("Info issue");
   });
 
-  it("uses tables for errors and warnings", () => {
+  it("uses bullet lists for all severities", () => {
     const findings = [
       makeFinding({ severity: "error", path: "a.ts", line: 10, body: "Bad code" }),
     ];
@@ -80,10 +80,11 @@ describe("buildReviewBody", () => {
       metadata: defaultMetadata,
     });
 
-    expect(body).toContain("| `a.ts` | L10 | Bad code |");
+    expect(body).toContain("- **`a.ts`** L10");
+    expect(body).toContain("Bad code");
   });
 
-  it("uses bullet list for info items", () => {
+  it("formats info items as bullet list", () => {
     const findings = [
       makeFinding({ severity: "info", path: "c.ts", line: 5, body: "Consider this" }),
     ];
@@ -95,10 +96,10 @@ describe("buildReviewBody", () => {
       metadata: defaultMetadata,
     });
 
-    expect(body).toContain("- `c.ts:5` — Consider this");
+    expect(body).toContain("- `c.ts` L5 — Consider this");
   });
 
-  it("shows stats footer", () => {
+  it("shows compact stats footer", () => {
     const body = buildReviewBody({
       llmSummary: "",
       findings: [],
@@ -106,10 +107,9 @@ describe("buildReviewBody", () => {
       metadata: { ...defaultMetadata, filesReviewed: 5, ruleFindings: 3, llmFindings: 4 },
     });
 
-    expect(body).toContain("5 files reviewed");
-    expect(body).toContain("3 rule findings");
-    expect(body).toContain("4 LLM findings");
-    expect(body).toContain("2 inline comments posted");
+    expect(body).toContain("5 files");
+    expect(body).toContain("7 findings");
+    expect(body).toContain("2 inline");
   });
 
   it("shows no issues message when findings are empty", () => {
@@ -120,10 +120,10 @@ describe("buildReviewBody", () => {
       metadata: defaultMetadata,
     });
 
-    expect(body).toContain("No issues found. Looks good!");
+    expect(body).toContain("No issues found.");
   });
 
-  it("escapes pipe characters in finding bodies", () => {
+  it("handles pipe characters in finding bodies", () => {
     const findings = [
       makeFinding({ severity: "error", body: "Use a | b instead" }),
     ];
@@ -135,6 +135,7 @@ describe("buildReviewBody", () => {
       metadata: defaultMetadata,
     });
 
-    expect(body).toContain("Use a \\| b instead");
+    // Bullet list format, no pipe escaping needed
+    expect(body).toContain("Use a | b instead");
   });
 });

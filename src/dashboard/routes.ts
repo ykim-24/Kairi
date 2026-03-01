@@ -25,9 +25,11 @@ import {
   setFeatureFlag,
   listPendingReviews,
   resolvePendingReview,
+  deletePendingReview,
 } from "../metrics/pg-store.js";
 import { getOctokit } from "../github/client.js";
 import { postReview } from "../github/reviews.js";
+import { orchestrateReview } from "../review/orchestrator.js";
 import { createChildLogger } from "../utils/logger.js";
 
 const log = createChildLogger({ module: "dashboard-routes" });
@@ -215,6 +217,50 @@ export function createDashboardRouter(): Hono {
     } catch (err) {
       log.error({ err, id }, "Failed to fetch PR diff");
       return c.json({ ok: false, error: "Failed to fetch diff from GitHub" }, 500);
+    }
+  });
+
+  app.post("/api/pending-reviews/:id/reprocess", async (c) => {
+    const id = parseInt(c.req.param("id"), 10);
+    const all = await listPendingReviews();
+    const row = all.find((r) => r.id === id);
+    if (!row) {
+      return c.json({ ok: false, error: "Review not found" }, 404);
+    }
+
+    // Fetch PR details from GitHub to get headRef/baseRef
+    try {
+      const octokit = await getOctokit(row.installation_id);
+      const repoName = row.repo.split("/")[1] ?? row.repo;
+      const { data: pr } = await octokit.pulls.get({
+        owner: row.owner,
+        repo: repoName,
+        pull_number: row.pull_number,
+      });
+
+      // Delete the old pending review before re-running
+      await deletePendingReview(id);
+
+      // Re-run the full review pipeline in background
+      const ctx = {
+        owner: row.owner,
+        repo: repoName,
+        pullNumber: row.pull_number,
+        headSha: pr.head.sha,
+        headRef: pr.head.ref,
+        baseRef: pr.base.ref,
+        installationId: row.installation_id,
+      };
+
+      orchestrateReview(ctx, false).catch((err) =>
+        log.error({ err, id, pr: row.pull_number }, "Reprocess failed")
+      );
+
+      log.info({ id, repo: row.repo, pr: row.pull_number }, "Reprocessing review");
+      return c.json({ ok: true });
+    } catch (err) {
+      log.error({ err, id }, "Failed to start reprocess");
+      return c.json({ ok: false, error: "Failed to start reprocess" }, 500);
     }
   });
 

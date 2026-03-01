@@ -40,6 +40,8 @@ export async function getConceptApprovalRates(
       ? `
       MATCH (r:Repo {name: $repo})<-[:BELONGS_TO]-(i:Interaction)-[:RELATES_TO]->(c:Concept)
       WHERE i.approved IS NOT NULL
+        AND NOT c.name STARTS WITH 'file:'
+        AND NOT c.name STARTS WITH 'stem:'
       WITH c.name AS concept,
            count(i) AS total,
            sum(CASE WHEN i.approved = true THEN 1 ELSE 0 END) AS approved,
@@ -53,6 +55,8 @@ export async function getConceptApprovalRates(
       : `
       MATCH (i:Interaction)-[:RELATES_TO]->(c:Concept)
       WHERE i.approved IS NOT NULL
+        AND NOT c.name STARTS WITH 'file:'
+        AND NOT c.name STARTS WITH 'stem:'
       WITH c.name AS concept,
            count(i) AS total,
            sum(CASE WHEN i.approved = true THEN 1 ELSE 0 END) AS approved,
@@ -93,11 +97,12 @@ export async function getFileHotspots(
     const query = repo
       ? `
       MATCH (r:Repo {name: $repo})<-[:BELONGS_TO]-(i:Interaction)-[:REVIEWED]->(f:File)
-      WHERE i.approved IS NOT NULL
+      WHERE i.approved IS NOT NULL AND f.path <> ''
       WITH f.path AS file, collect(i) AS interactions, count(i) AS commentCount
       WHERE commentCount >= 2
       UNWIND interactions AS i
       OPTIONAL MATCH (i)-[:RELATES_TO]->(c:Concept)
+      WHERE NOT c.name STARTS WITH 'file:' AND NOT c.name STARTS WITH 'stem:'
       WITH file, commentCount, c.name AS concept, count(*) AS freq
       ORDER BY freq DESC
       WITH file, commentCount, collect(concept)[0..3] AS topConcepts
@@ -107,11 +112,12 @@ export async function getFileHotspots(
       `
       : `
       MATCH (i:Interaction)-[:REVIEWED]->(f:File)
-      WHERE i.approved IS NOT NULL
+      WHERE i.approved IS NOT NULL AND f.path <> ''
       WITH f.path AS file, collect(i) AS interactions, count(i) AS commentCount
       WHERE commentCount >= 2
       UNWIND interactions AS i
       OPTIONAL MATCH (i)-[:RELATES_TO]->(c:Concept)
+      WHERE NOT c.name STARTS WITH 'file:' AND NOT c.name STARTS WITH 'stem:'
       WITH file, commentCount, c.name AS concept, count(*) AS freq
       ORDER BY freq DESC
       WITH file, commentCount, collect(concept)[0..3] AS topConcepts
@@ -154,6 +160,8 @@ export async function getConceptGraph(
       WITH i
       MATCH (c1:Concept)<-[:RELATES_TO]-(i)-[:RELATES_TO]->(c2:Concept)
       WHERE c1.name < c2.name
+        AND NOT c1.name STARTS WITH 'file:' AND NOT c1.name STARTS WITH 'stem:'
+        AND NOT c2.name STARTS WITH 'file:' AND NOT c2.name STARTS WITH 'stem:'
       WITH c1.name AS source, c2.name AS target,
            count(i) AS weight,
            avg(CASE WHEN i.approved THEN 1.0 ELSE 0.0 END) AS avgApproval
@@ -166,6 +174,8 @@ export async function getConceptGraph(
       MATCH (c1:Concept)<-[:RELATES_TO]-(i:Interaction)-[:RELATES_TO]->(c2:Concept)
       WHERE c1.name < c2.name
         AND i.approved IS NOT NULL
+        AND NOT c1.name STARTS WITH 'file:' AND NOT c1.name STARTS WITH 'stem:'
+        AND NOT c2.name STARTS WITH 'file:' AND NOT c2.name STARTS WITH 'stem:'
       WITH c1.name AS source, c2.name AS target,
            count(i) AS weight,
            avg(CASE WHEN i.approved THEN 1.0 ELSE 0.0 END) AS avgApproval

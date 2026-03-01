@@ -1,39 +1,61 @@
 import type { Rule, RuleContext } from "../types.js";
-import type { InlineComment } from "../../review/types.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".java"]);
 const TEST_PATTERNS = [/\.test\./, /\.spec\./, /__tests__/, /test_/, /_test\./];
 
+/**
+ * Single summary-level finding when source files are modified without test changes.
+ * Only emits once (on the first source file encountered), not per-file.
+ */
 export const requireTests: Rule = {
   id: "require-tests",
   name: "Require Tests",
   description: "Warns when source files are modified without corresponding test changes",
   run(ctx: RuleContext) {
-    // This rule is special: it needs to be called once with context about all files
-    // We'll flag it on the first source file if no test files are present
-    // The engine calls this per-file, so we just check if this file is a source file
     const ext = getExtension(ctx.file.filename);
     if (!SOURCE_EXTENSIONS.has(ext)) return [];
     if (isTestFile(ctx.file.filename)) return [];
     if (ctx.file.status === "removed") return [];
 
-    // We can't check other files here, so this is a per-file hint
-    // The orchestrator will aggregate and deduplicate
+    // Only emit on the first source file — avoids duplicate findings
+    const firstSource = ctx.allFiles.find(
+      (f) =>
+        SOURCE_EXTENSIONS.has(getExtension(f.filename)) &&
+        !isTestFile(f.filename) &&
+        f.status !== "removed"
+    );
+    if (!firstSource || firstSource.filename !== ctx.file.filename) return [];
+
+    // If any test file was modified in this PR, no warning needed
+    const hasTests = ctx.allFiles.some((f) => isTestFile(f.filename));
+    if (hasTests) return [];
+
+    const sourceFiles = ctx.allFiles.filter(
+      (f) =>
+        SOURCE_EXTENSIONS.has(getExtension(f.filename)) &&
+        !isTestFile(f.filename) &&
+        f.status !== "removed"
+    );
+
+    const fileList = sourceFiles
+      .slice(0, 5)
+      .map((f) => `\`${f.filename}\``)
+      .join(", ");
+    const more = sourceFiles.length > 5 ? ` and ${sourceFiles.length - 5} more` : "";
+
     const firstLine = ctx.file.hunks
       .flatMap((h) => h.lines)
       .find((l) => l.type === "add" && l.newLineNumber !== null);
 
-    if (!firstLine?.newLineNumber) return [];
-
     return [
       {
         path: ctx.file.filename,
-        line: firstLine.newLineNumber,
-        body: `\`${ctx.config.severity}\` **require-tests**: Source file modified — ensure test coverage exists for these changes.`,
+        line: firstLine?.newLineNumber ?? 1,
+        body: `**require-tests**: ${sourceFiles.length} source file(s) modified without test changes: ${fileList}${more}. Consider adding or updating tests.`,
         source: "rule",
         severity: ctx.config.severity ?? "warning",
-        category: "style",
-        confidence: 1.0,
+        category: "testing",
+        confidence: 0.5, // low confidence pushes it to body-only (not inline)
         ruleId: "require-tests",
       },
     ];

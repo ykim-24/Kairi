@@ -5,6 +5,8 @@ import type { InlineComment } from "../review/types.js";
 export interface RuleContext {
   file: ParsedFile;
   config: RuleConfig;
+  /** All files in the PR — available for cross-file rules like require-tests */
+  allFiles: ParsedFile[];
 }
 
 export interface Rule {
