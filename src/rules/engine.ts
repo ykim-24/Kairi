@@ -38,7 +38,7 @@ export function runRules(
         severity: "warning",
       };
       try {
-        const findings = rule.run({ file, config: ruleConfig });
+        const findings = rule.run({ file, config: ruleConfig, allFiles: files });
         comments.push(...findings);
         rulesRun++;
       } catch (err) {

@@ -16,16 +16,14 @@ function makeFinding(overrides: Partial<ReviewFinding>): ReviewFinding {
 }
 
 describe("formatInlineComment", () => {
-  it("includes severity emoji and label", () => {
+  it("includes severity label", () => {
     const result = formatInlineComment(makeFinding({ severity: "error" }));
-    expect(result).toContain("\ud83d\udd34");
-    expect(result).toContain("Error");
+    expect(result).toContain("**Error**");
   });
 
-  it("includes warning emoji for warnings", () => {
+  it("includes warning label for warnings", () => {
     const result = formatInlineComment(makeFinding({ severity: "warning" }));
-    expect(result).toContain("\ud83d\udfe1");
-    expect(result).toContain("Warning");
+    expect(result).toContain("**Warning**");
   });
 
   it("includes category and confidence", () => {
@@ -57,13 +55,13 @@ describe("formatInlineComment", () => {
     const result = formatInlineComment(
       makeFinding({ graphContext: "Similar hardcoded secrets in src/config.ts were flagged and fixed." })
     );
-    expect(result).toContain("\ud83d\udcda");
-    expect(result).toContain("Similar hardcoded secrets in src/config.ts were flagged and fixed.");
+    expect(result).toContain("> Similar hardcoded secrets");
   });
 
   it("omits graph context when not present", () => {
     const result = formatInlineComment(makeFinding({ graphContext: undefined }));
-    expect(result).not.toContain("\ud83d\udcda");
+    // Only the header + body, no blockquote
+    expect(result).not.toContain("> ");
   });
 
   it("formats a full finding with all fields", () => {
@@ -78,12 +76,12 @@ describe("formatInlineComment", () => {
       })
     );
 
-    expect(result).toContain("\ud83d\udd34");
+    expect(result).toContain("**Error**");
     expect(result).toContain("security");
     expect(result).toContain("0.92");
     expect(result).toContain("Hardcoded secret detected.");
     expect(result).toContain("```suggestion");
     expect(result).toContain("const key = process.env.API_KEY;");
-    expect(result).toContain("\ud83d\udcda");
+    expect(result).toContain("> Past reviews");
   });
 });

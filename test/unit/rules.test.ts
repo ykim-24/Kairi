@@ -11,7 +11,7 @@ const defaultConfig = { enabled: true, severity: "warning" as const };
 describe("no-console-log rule", () => {
   it("detects console.log in added lines", () => {
     const file = parsePatch("test.ts", SIMPLE_PATCH, "modified");
-    const comments = noConsoleLog.run({ file, config: defaultConfig });
+    const comments = noConsoleLog.run({ file, config: defaultConfig, allFiles: [file] });
 
     expect(comments.length).toBeGreaterThan(0);
     expect(comments[0].ruleId).toBe("no-console-log");
@@ -20,7 +20,7 @@ describe("no-console-log rule", () => {
 
   it("detects console.log in multi-hunk patch", () => {
     const file = parsePatch("utils.ts", MULTI_HUNK_PATCH, "modified");
-    const comments = noConsoleLog.run({ file, config: defaultConfig });
+    const comments = noConsoleLog.run({ file, config: defaultConfig, allFiles: [file] });
 
     expect(comments.length).toBeGreaterThan(0);
   });
@@ -31,7 +31,7 @@ describe("no-console-log rule", () => {
 +const b = 2;
  export { a };`;
     const file = parsePatch("clean.ts", patch, "modified");
-    const comments = noConsoleLog.run({ file, config: defaultConfig });
+    const comments = noConsoleLog.run({ file, config: defaultConfig, allFiles: [file] });
 
     expect(comments).toHaveLength(0);
   });
@@ -40,7 +40,7 @@ describe("no-console-log rule", () => {
 describe("no-secrets rule", () => {
   it("detects API key patterns", () => {
     const file = parsePatch("config.ts", SIMPLE_PATCH, "modified");
-    const comments = noSecrets.run({ file, config: { enabled: true, severity: "error" } });
+    const comments = noSecrets.run({ file, config: { enabled: true, severity: "error" }, allFiles: [file] });
 
     expect(comments.length).toBeGreaterThan(0);
     expect(comments[0].severity).toBe("error");
@@ -53,7 +53,7 @@ describe("no-secrets rule", () => {
 +  key: "AKIAIOSFODNN7EXAMPLE",
  };`;
     const file = parsePatch("aws.ts", patch, "modified");
-    const comments = noSecrets.run({ file, config: { enabled: true, severity: "error" } });
+    const comments = noSecrets.run({ file, config: { enabled: true, severity: "error" }, allFiles: [file] });
 
     expect(comments.length).toBeGreaterThan(0);
   });
@@ -62,7 +62,7 @@ describe("no-secrets rule", () => {
 describe("no-todo rule", () => {
   it("detects TODO comments", () => {
     const file = parsePatch("app.ts", SIMPLE_PATCH, "modified");
-    const comments = noTodo.run({ file, config: { enabled: true, severity: "info" } });
+    const comments = noTodo.run({ file, config: { enabled: true, severity: "info" }, allFiles: [file] });
 
     expect(comments.length).toBeGreaterThan(0);
     expect(comments[0].ruleId).toBe("no-todo");
@@ -75,7 +75,7 @@ describe("no-todo rule", () => {
 +  // HACK: temporary workaround
  }`;
     const file = parsePatch("fix.ts", patch, "modified");
-    const comments = noTodo.run({ file, config: { enabled: true, severity: "info" } });
+    const comments = noTodo.run({ file, config: { enabled: true, severity: "info" }, allFiles: [file] });
 
     expect(comments).toHaveLength(2);
   });
@@ -90,6 +90,7 @@ describe("max-file-size rule", () => {
     const comments = maxFileSize.run({
       file,
       config: { enabled: true, severity: "warning", maxLines: 500 },
+      allFiles: [file],
     });
 
     expect(comments).toHaveLength(1);
@@ -104,6 +105,7 @@ describe("max-file-size rule", () => {
     const comments = maxFileSize.run({
       file,
       config: { enabled: true, severity: "warning", maxLines: 500 },
+      allFiles: [file],
     });
 
     expect(comments).toHaveLength(0);

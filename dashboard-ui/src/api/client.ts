@@ -101,6 +101,9 @@ export const api = {
   rejectPendingReview: (id: number) =>
     post<{ ok: boolean; error?: string }>(`/pending-reviews/${id}/reject`, {}),
 
+  reprocessPendingReview: (id: number) =>
+    post<{ ok: boolean; error?: string }>(`/pending-reviews/${id}/reprocess`, {}),
+
   getPendingReviewDiff: (id: number) =>
     get<{ ok: boolean; diff: DiffFile[] }>(`/pending-reviews/${id}/diff`),
 };

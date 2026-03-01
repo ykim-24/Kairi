@@ -14,7 +14,7 @@ interface BodyBuilderOptions {
 }
 
 /**
- * Builds a structured markdown body containing all findings organized by severity.
+ * Builds a clean markdown review body for GitHub PR comments.
  */
 export function buildReviewBody(options: BodyBuilderOptions): string {
   const { llmSummary, findings, inlineCount, metadata } = options;
@@ -23,57 +23,56 @@ export function buildReviewBody(options: BodyBuilderOptions): string {
   parts.push("<!-- kairi-review -->");
   parts.push("## Kairi Review\n");
 
+  // Cross-file summary (the main analysis)
   if (llmSummary) {
     parts.push(llmSummary);
     parts.push("");
   }
 
+  // Group findings by severity
   const errors = findings.filter((f) => f.severity === "error");
   const warnings = findings.filter((f) => f.severity === "warning");
   const infos = findings.filter((f) => f.severity === "info");
 
   if (errors.length > 0) {
-    parts.push("### Errors (must fix)");
-    parts.push("| File | Line | Issue |");
-    parts.push("|------|------|-------|");
+    parts.push("### Errors\n");
     for (const f of errors) {
-      parts.push(`| \`${f.path}\` | L${f.line} | ${escapePipes(f.body)} |`);
+      parts.push(`- **\`${f.path}\`** L${f.line} — ${stripMarkdownBold(f.body)}`);
     }
     parts.push("");
   }
 
   if (warnings.length > 0) {
-    parts.push("### Warnings");
-    parts.push("| File | Line | Issue |");
-    parts.push("|------|------|-------|");
+    parts.push("### Warnings\n");
     for (const f of warnings) {
-      parts.push(`| \`${f.path}\` | L${f.line} | ${escapePipes(f.body)} |`);
+      parts.push(`- **\`${f.path}\`** L${f.line} — ${stripMarkdownBold(f.body)}`);
     }
     parts.push("");
   }
 
   if (infos.length > 0) {
-    parts.push("### Info / Suggestions");
+    parts.push("### Suggestions\n");
     for (const f of infos) {
-      parts.push(`- \`${f.path}:${f.line}\` — ${f.body}`);
+      parts.push(`- \`${f.path}\` L${f.line} — ${f.body}`);
     }
     parts.push("");
   }
 
   if (findings.length === 0) {
-    parts.push("No issues found. Looks good!");
-    parts.push("");
+    parts.push("No issues found.\n");
   }
 
+  // Minimal stats footer
+  const total = metadata.ruleFindings + metadata.llmFindings;
   parts.push("---");
-  const totalFindings = metadata.ruleFindings + metadata.llmFindings;
   parts.push(
-    `**Stats**: ${metadata.filesReviewed} files reviewed | ${metadata.ruleFindings} rule findings | ${metadata.llmFindings} LLM findings | ${inlineCount} inline comments posted | ${totalFindings} total findings`
+    `${metadata.filesReviewed} files | ${total} findings | ${inlineCount} inline`
   );
 
   return parts.join("\n");
 }
 
-function escapePipes(text: string): string {
-  return text.replace(/\|/g, "\\|").replace(/\n/g, " ");
+/** Strip leading **bold** markers from rule body to avoid double-bolding */
+function stripMarkdownBold(text: string): string {
+  return text.replace(/^\*\*.*?\*\*\s*/, "").replace(/\n/g, " ");
 }

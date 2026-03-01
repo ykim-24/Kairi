@@ -71,7 +71,7 @@ export async function handleIssueComment(
 
   // Store the human comment as a learning interaction
   const interactionId = randomUUID();
-  const concepts = extractConcepts([], comment.body);
+  const concepts = await extractConcepts([], comment.body);
 
   const interaction: ReviewInteraction = {
     id: interactionId,
@@ -167,7 +167,7 @@ export async function handleInlineComment(
     additions: 0,
     deletions: 0,
   };
-  const concepts = extractConcepts(
+  const concepts = await extractConcepts(
     filePath ? [fakeParsedFile] : [],
     comment.body
   );
@@ -212,19 +212,20 @@ async function postContextReply(
   const octokit = await getOctokit(installationId);
 
   const contextLines = patterns.map((p) => {
-    const parts: string[] = [];
-    parts.push(`- **${p.category}**`);
-    if (p.filePath) parts[0] += ` on \`${p.filePath}\``;
-    if (p.pullNumber) parts[0] += ` (PR #${p.pullNumber})`;
-    parts[0] += `: ${p.reviewComment.slice(0, 150)}`;
-    return parts[0];
+    const prLink = p.pullNumber
+      ? `[#${p.pullNumber}](https://github.com/${repo}/pull/${p.pullNumber})`
+      : "";
+    const file = p.filePath ? `\`${p.filePath}\`` : "";
+    const location = [file, prLink].filter(Boolean).join(" ");
+    const snippet = p.reviewComment.slice(0, 150).trim();
+    return `- **${p.category}** ${location}\n  > ${snippet}`;
   });
 
   const body = `${KAIRI_TAG}
 
-> I found some related context from past reviews that might be relevant:
+Related context from past reviews:
 
-${contextLines.join("\n")}`;
+${contextLines.join("\n\n")}`;
 
   try {
     await octokit.issues.createComment({
