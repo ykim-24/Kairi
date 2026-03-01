@@ -277,6 +277,7 @@ async function storeReviewInteractions(
       timestamp: new Date().toISOString(),
       source: comment.source,
       severity: comment.severity,
+      prAuthor: ctx.prAuthor,
     };
 
     // Store in both backends (fire and forget, don't block the review)

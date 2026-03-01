@@ -62,6 +62,7 @@ export async function storeInteraction(
             source: interaction.source,
             severity: interaction.severity,
             timestamp: interaction.timestamp,
+            prAuthor: interaction.prAuthor ?? null,
           },
         },
       ],
@@ -133,6 +134,8 @@ export async function searchSimilar(
       filePath: (r.payload?.filePath as string) ?? "",
       category: (r.payload?.category as string) ?? "",
       approved: r.payload?.approved as boolean | null,
+      pullNumber: (r.payload?.pullNumber as number) ?? undefined,
+      prAuthor: (r.payload?.prAuthor as string) ?? undefined,
       score: r.score,
     }));
   } catch (err) {

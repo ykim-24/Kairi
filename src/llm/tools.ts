@@ -175,6 +175,7 @@ export async function executeToolCall(
             category: r.category,
             approved: r.approved ?? null,
             pullNumber: r.pullNumber ?? null,
+            prAuthor: r.prAuthor ?? null,
             score: Math.round((r.score ?? 0) * 100) / 100,
           }))
         );
@@ -193,6 +194,7 @@ export async function executeToolCall(
             category: r.category,
             approved: r.approved ?? null,
             pullNumber: r.pullNumber ?? null,
+            prAuthor: r.prAuthor ?? null,
           }))
         );
       }

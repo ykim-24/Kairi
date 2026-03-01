@@ -36,6 +36,7 @@ export async function handlePullRequest(event: PREvent): Promise<void> {
     headRef: pr.head.ref,
     baseRef: pr.base.ref,
     installationId: installation.id,
+    prAuthor: pr.user?.login,
   };
 
   log.info(

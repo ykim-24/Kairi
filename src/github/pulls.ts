@@ -13,6 +13,7 @@ export interface PRContext {
   headRef: string;
   baseRef: string;
   installationId: number;
+  prAuthor?: string;
 }
 
 export interface PRFile {
