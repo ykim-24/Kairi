@@ -39,7 +39,10 @@ You have access to tools that query this repository's review history. Use them s
 **Tool usage guidance:**
 - You don't need to call tools for every file — use them when you see something worth checking.
 - 1-3 tool calls is typical. Don't over-query.
-- If the diff is straightforward and you're confident, skip tools and go straight to submit_review.`;
+- If the diff is straightforward and you're confident, skip tools and go straight to submit_review.
+
+**Citing past reviews:**
+When tool results return relevant past reviews, naturally reference them in your findings. For example, if a similar pattern was flagged in PR #42 by @alice, you might say: "This pattern was flagged in #42 (@alice) — consider the same approach here." Don't force it — only cite when the past review genuinely adds context. Use the pullNumber and prAuthor fields from tool results.`;
   }
 
   prompt += `

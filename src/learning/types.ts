@@ -25,6 +25,8 @@ export interface ReviewInteraction {
   source: "rule" | "llm" | "human";
   /** The severity assigned */
   severity: "error" | "warning" | "info";
+  /** GitHub username of the PR author */
+  prAuthor?: string;
 }
 
 /** Feedback signal from GitHub events */
@@ -50,4 +52,5 @@ export interface RetrievedPattern {
   approved?: boolean | null;
   pullNumber?: number;
   source?: "rule" | "llm" | "human";
+  prAuthor?: string;
 }

@@ -102,7 +102,8 @@ export async function storeInteraction(
         severity: $severity,
         pullNumber: $pullNumber,
         line: $line,
-        timestamp: datetime($timestamp)
+        timestamp: datetime($timestamp),
+        prAuthor: $prAuthor
       })
       MERGE (f:File {path: $filePath})
       CREATE (i)-[:REVIEWED]->(f)
@@ -126,6 +127,7 @@ export async function storeInteraction(
         line: interaction.line,
         timestamp: interaction.timestamp,
         concepts: interaction.concepts,
+        prAuthor: interaction.prAuthor ?? null,
       }
     );
   } catch (err) {
@@ -176,7 +178,7 @@ export async function getRelatedInteractions(
              i.diffContext AS diffContext, i.approved AS approved,
              i.category AS category, f.path AS filePath,
              i.pullNumber AS pullNumber, i.source AS source,
-             matchedConcepts, relevance
+             i.prAuthor AS prAuthor, matchedConcepts, relevance
       `,
       { concepts, repo, limit: neo4j.int(limit) }
     );
@@ -189,6 +191,7 @@ export async function getRelatedInteractions(
       approved: r.get("approved"),
       pullNumber: (r.get("pullNumber") as any)?.toNumber?.() ?? r.get("pullNumber") ?? undefined,
       source: r.get("source") ?? undefined,
+      prAuthor: r.get("prAuthor") ?? undefined,
       score: (r.get("relevance") as any)?.toNumber?.() ?? 0,
     }));
   } catch (err) {
@@ -223,7 +226,7 @@ export async function getFileHistory(
       MATCH (i)-[:REVIEWED]->(f:File)
       RETURN i.reviewComment AS reviewComment, i.diffContext AS diffContext,
              i.approved AS approved, i.category AS category, f.path AS filePath,
-             i.pullNumber AS pullNumber, i.source AS source, i.timestamp AS ts
+             i.pullNumber AS pullNumber, i.source AS source, i.prAuthor AS prAuthor, i.timestamp AS ts
       `
       : "";
 
@@ -234,14 +237,14 @@ export async function getFileHistory(
       MATCH (i)-[:REVIEWED]->(f:File)
       RETURN i.reviewComment AS reviewComment, i.diffContext AS diffContext,
              i.approved AS approved, i.category AS category, f.path AS filePath,
-             i.pullNumber AS pullNumber, i.source AS source, i.timestamp AS ts
+             i.pullNumber AS pullNumber, i.source AS source, i.prAuthor AS prAuthor, i.timestamp AS ts
       UNION
       MATCH (fc:Concept {name: $fileConcept})<-[:RELATES_TO]-(i:Interaction)-[:BELONGS_TO]->(r:Repo {name: $repo})
       WHERE i.approved IS NOT NULL
       MATCH (i)-[:REVIEWED]->(f:File)
       RETURN i.reviewComment AS reviewComment, i.diffContext AS diffContext,
              i.approved AS approved, i.category AS category, f.path AS filePath,
-             i.pullNumber AS pullNumber, i.source AS source, i.timestamp AS ts
+             i.pullNumber AS pullNumber, i.source AS source, i.prAuthor AS prAuthor, i.timestamp AS ts
       ${stemBranch}
       ORDER BY ts DESC
       LIMIT $limit
@@ -263,6 +266,7 @@ export async function getFileHistory(
       approved: r.get("approved"),
       pullNumber: (r.get("pullNumber") as any)?.toNumber?.() ?? r.get("pullNumber") ?? undefined,
       source: r.get("source") ?? undefined,
+      prAuthor: r.get("prAuthor") ?? undefined,
       score: 1,
     }));
   } catch (err) {
