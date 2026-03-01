@@ -28,6 +28,7 @@ const repoConfigSchema = z.object({
         "maintainability",
       ]),
       customInstructions: z.string().optional(),
+      maxToolIterations: z.number().min(1).max(20).default(10),
     })
     .default({}),
   filters: z

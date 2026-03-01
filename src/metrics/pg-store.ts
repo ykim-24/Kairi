@@ -35,9 +35,7 @@ export async function initMetricsDb(connectionString?: string): Promise<void> {
         llm_tokens_estimated INTEGER NOT NULL,
         llm_parse_success BOOLEAN NOT NULL,
         duration_ms INTEGER NOT NULL,
-        patterns_recalled INTEGER NOT NULL DEFAULT 0,
-        approved_patterns_used INTEGER NOT NULL DEFAULT 0,
-        rejected_patterns_used INTEGER NOT NULL DEFAULT 0
+        tool_calls_made INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS feedback_metrics (
@@ -106,16 +104,15 @@ export async function recordReview(metric: ReviewMetric): Promise<void> {
         repo, pull_number, total_comments, rule_comments, llm_comments,
         files_reviewed, error_count, warning_count, info_count,
         llm_chunks, llm_tokens_estimated, llm_parse_success, duration_ms,
-        patterns_recalled, approved_patterns_used, rejected_patterns_used
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+        tool_calls_made
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [
         metric.repo, metric.pullNumber, metric.totalComments,
         metric.ruleComments, metric.llmComments, metric.filesReviewed,
         metric.errorCount, metric.warningCount, metric.infoCount,
         metric.llmChunks, metric.llmTokensEstimated,
         metric.llmParseSuccess, metric.durationMs,
-        metric.patternsRecalled, metric.approvedPatternsUsed,
-        metric.rejectedPatternsUsed,
+        metric.toolCallsMade,
       ]
     );
   } catch (err) {
@@ -172,7 +169,7 @@ export async function getAggregatedMetrics(
       COALESCE(SUM(info_count), 0)::int as infos,
       COALESCE(AVG(llm_tokens_estimated), 0)::float as avg_tokens,
       COALESCE(AVG(llm_parse_success::int), 0)::float as parse_rate,
-      COALESCE(AVG(patterns_recalled), 0)::float as avg_patterns
+      COALESCE(AVG(tool_calls_made), 0)::float as avg_tool_calls
     FROM review_metrics
     WHERE timestamp >= $1 ${repoClause}`,
     params
@@ -263,7 +260,7 @@ export async function getAggregatedMetrics(
     avgTokensPerReview: reviews.avg_tokens,
     llmParseSuccessRate: reviews.parse_rate,
     totalInteractions: reviews.total_comments,
-    avgPatternsRecalled: reviews.avg_patterns,
+    avgPatternsRecalled: reviews.avg_tool_calls,
     knowledgeBaseApprovalRate: currentApproval,
   };
 }
@@ -460,6 +457,17 @@ export async function resolvePendingReview(
      WHERE id = $2 AND status = 'pending'
      RETURNING *`,
     [resolution, id]
+  );
+  return rows[0] ?? null;
+}
+
+export async function deletePendingReview(
+  id: number
+): Promise<PendingReviewRow | null> {
+  if (!_pool) return null;
+  const { rows } = await _pool.query(
+    `DELETE FROM pending_reviews WHERE id = $1 RETURNING *`,
+    [id]
   );
   return rows[0] ?? null;
 }

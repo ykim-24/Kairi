@@ -21,6 +21,7 @@ export const DEFAULT_CONFIG: RepoConfig = {
       "readability",
       "maintainability",
     ],
+    maxToolIterations: 10,
   },
   filters: {
     excludePaths: [

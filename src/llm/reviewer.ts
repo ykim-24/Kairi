@@ -1,11 +1,15 @@
 import { z } from "zod";
+import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "./client.js";
-import { chunkFiles, estimateFileTokens, type FileChunk } from "./chunker.js";
+import { chunkFiles, estimateFileTokens } from "./chunker.js";
+import { buildAgenticSystemPrompt, buildUserPrompt } from "./prompts.js";
 import {
-  buildFileAnalysisPrompt,
-  buildCrossFilePrompt,
-  buildUserPrompt,
-} from "./prompts.js";
+  REVIEW_TOOLS,
+  LOOKUP_TOOL_NAMES,
+  submitReviewSchema,
+  executeToolCall,
+  type SubmitReviewInput,
+} from "./tools.js";
 import type { ParsedFile } from "../utils/diff-parser.js";
 import type { RepoConfig } from "../config-loader/schema.js";
 import type { ReviewFinding } from "../review/types.js";
@@ -14,355 +18,260 @@ import { createChildLogger } from "../utils/logger.js";
 
 const log = createChildLogger({ module: "llm-reviewer" });
 
-const llmCommentSchema = z.object({
-  path: z.string(),
-  line: z.number(),
-  body: z.string(),
-  severity: z.enum(["error", "warning", "info"]),
-  category: z.string(),
-  confidence: z.number().min(0).max(1).optional().default(0.7),
-  suggestedFix: z.string().optional(),
-});
+const CHARS_PER_TOKEN = 4;
+const DEFAULT_MAX_ITERATIONS = 10;
 
-const fileAnalysisResponseSchema = z.object({
-  fileSummary: z.string(),
-  comments: z.array(llmCommentSchema),
-});
-
-const crossFileResponseSchema = z.object({
-  summary: z.string(),
-  comments: z.array(llmCommentSchema),
-});
-
-interface FileAnalysis {
-  filename: string;
-  summary: string;
-  comments: ReviewFinding[];
-}
-
-/**
- * Two-phase LLM review:
- *   Phase 1 — Per-file: Assess each file individually for quality, patterns, issues
- *   Phase 2 — Cross-file: Analyze how changes connect, affect each other, overall flow
- */
 export async function reviewWithLLM(
   files: ParsedFile[],
   config: RepoConfig,
-  learningContext?: string
-): Promise<{ comments: ReviewFinding[]; summary: string; chunksUsed: number }> {
-  log.info({ fileCount: files.length }, "Starting two-phase LLM review");
+  repo: string,
+  learningEnabled: boolean
+): Promise<{
+  comments: ReviewFinding[];
+  summary: string;
+  chunksUsed: number;
+  toolCallsMade: number;
+}> {
+  log.info({ fileCount: files.length }, "Starting agentic LLM review");
 
-  // Phase 1: Per-file analysis
-  const fileAnalyses = await runFileAnalysis(files, config, learningContext);
+  const chunks = chunkFiles(files, config.llm.maxTokenBudget);
+  const allComments: ReviewFinding[] = [];
+  const summaries: string[] = [];
+  let totalToolCalls = 0;
 
-  const phase1Comments = fileAnalyses.flatMap((a) => a.comments);
-  let chunksUsed = fileAnalyses.length;
-
-  // Phase 2: Cross-file analysis (only when multiple files changed)
-  let crossFileSummary = "";
-  let phase2Comments: ReviewFinding[] = [];
-
-  if (files.length > 1) {
-    const crossResult = await runCrossFileAnalysis(
-      files,
-      fileAnalyses,
+  for (const chunk of chunks) {
+    const result = await runAgenticReview(
+      chunk.files,
       config,
-      learningContext
+      repo,
+      learningEnabled,
+      chunks.length > 1
     );
-    if (crossResult) {
-      crossFileSummary = crossResult.summary;
-      phase2Comments = crossResult.comments;
-      chunksUsed++;
-    }
+    allComments.push(...result.comments);
+    summaries.push(result.summary);
+    totalToolCalls += result.toolCallsMade;
   }
 
-  // Combine summaries
-  const fileSummaries = fileAnalyses
-    .filter((a) => a.summary)
-    .map((a) => `**${a.filename}**: ${a.summary}`);
-
-  const summaryParts: string[] = [];
-  if (crossFileSummary) {
-    summaryParts.push(crossFileSummary);
-  }
-  if (fileSummaries.length > 0) {
-    summaryParts.push("\n<details><summary>Per-file analysis</summary>\n");
-    summaryParts.push(...fileSummaries.map((s) => `- ${s}`));
-    summaryParts.push("\n</details>");
-  }
-
-  const summary = summaryParts.join("\n") || "No significant issues found.";
-  const allComments = [...phase1Comments, ...phase2Comments];
+  // Merge summaries
+  const summary =
+    summaries.length === 1
+      ? summaries[0]
+      : summaries.filter(Boolean).join("\n\n") || "No significant issues found.";
 
   log.info(
     {
-      phase1Findings: phase1Comments.length,
-      phase2Findings: phase2Comments.length,
-      chunksUsed,
+      totalFindings: allComments.length,
+      chunksUsed: chunks.length,
+      toolCallsMade: totalToolCalls,
     },
-    "Two-phase LLM review complete"
+    "Agentic LLM review complete"
   );
 
-  return { comments: allComments, summary, chunksUsed };
+  return {
+    comments: allComments,
+    summary,
+    chunksUsed: chunks.length,
+    toolCallsMade: totalToolCalls,
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Phase 1: Per-file analysis
+// Agentic tool-use loop
 // ---------------------------------------------------------------------------
 
-async function runFileAnalysis(
+async function runAgenticReview(
   files: ParsedFile[],
   config: RepoConfig,
-  learningContext?: string
-): Promise<FileAnalysis[]> {
-  const systemPrompt = buildFileAnalysisPrompt(config, learningContext);
-  const analyses: FileAnalysis[] = [];
-
-  // Chunk files — small files get grouped, large files go alone
-  const chunks = chunkFiles(files, config.llm.maxTokenBudget);
-
-  for (const chunk of chunks) {
-    // If the chunk has a single file, review it solo for best per-file focus.
-    // If multiple small files are in a chunk, review them together but the
-    // prompt still asks for per-file assessment.
-    const results = await reviewFileChunk(chunk, systemPrompt, config);
-    if (results) {
-      analyses.push(...results);
-    }
-  }
-
-  return analyses;
-}
-
-async function reviewFileChunk(
-  chunk: FileChunk,
-  systemPrompt: string,
-  config: RepoConfig
-): Promise<FileAnalysis[] | null> {
-  const userPrompt = buildUserPrompt(chunk.files);
+  repo: string,
+  learningEnabled: boolean,
+  isChunk: boolean
+): Promise<{
+  comments: ReviewFinding[];
+  summary: string;
+  toolCallsMade: number;
+}> {
   const client = getAnthropicClient();
+  const systemPrompt = buildAgenticSystemPrompt(config, learningEnabled);
+  const userPrompt = buildUserPrompt(files);
+  const maxIterations = config.llm.maxToolIterations ?? DEFAULT_MAX_ITERATIONS;
 
-  try {
-    const response = await withRetry(
-      () =>
-        client.messages.create({
-          model: config.llm.model,
-          max_tokens: 4096,
-          temperature: config.llm.temperature,
-          system: systemPrompt,
-          messages: [{ role: "user", content: userPrompt }],
-        }),
-      {
-        maxAttempts: 2,
-        retryOn: (err: any) => err?.status === 529 || err?.status === 500,
-      }
-    );
+  // Select tools: only include lookup tools if learning is enabled
+  const tools = learningEnabled
+    ? REVIEW_TOOLS
+    : REVIEW_TOOLS.filter((t) => !LOOKUP_TOOL_NAMES.includes(t.name as any));
 
-    const text = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("");
+  const messages: Anthropic.MessageParam[] = [
+    { role: "user", content: userPrompt },
+  ];
 
-    const parsed = parseFileAnalysisResponse(text);
-    if (!parsed) {
-      log.warn("Failed to parse per-file LLM response");
-      // Return a basic analysis for each file in the chunk
-      return chunk.files.map((f) => ({
-        filename: f.filename,
-        summary: "",
-        comments: [],
-      }));
+  // Estimate token usage for budget tracking
+  const systemTokens = Math.ceil(systemPrompt.length / CHARS_PER_TOKEN);
+  const userTokens = Math.ceil(userPrompt.length / CHARS_PER_TOKEN);
+  let accumulatedToolResultTokens = 0;
+  let toolCallsMade = 0;
+
+  const validFiles = new Set(files.map((f) => f.filename));
+
+  for (let iteration = 1; iteration <= maxIterations; iteration++) {
+    const isLastIteration = iteration === maxIterations;
+
+    // Check token budget — force submit if nearing limit
+    const estimatedContext =
+      systemTokens + userTokens + accumulatedToolResultTokens;
+    const budgetExceeded = estimatedContext > config.llm.maxTokenBudget * 0.85;
+
+    const forceSubmit = isLastIteration || budgetExceeded;
+    const toolChoice: Anthropic.MessageCreateParams["tool_choice"] = forceSubmit
+      ? { type: "tool", name: "submit_review" }
+      : { type: "auto" };
+
+    if (budgetExceeded && !isLastIteration) {
+      log.info(
+        { iteration, estimatedContext, budget: config.llm.maxTokenBudget },
+        "Token budget nearing limit, forcing submit_review"
+      );
     }
 
-    const validFiles = new Set(chunk.files.map((f) => f.filename));
-    const comments: ReviewFinding[] = parsed.comments
-      .filter((c) => validFiles.has(c.path))
-      .map((c) => ({
-        path: c.path,
-        line: c.line,
-        body: c.body,
-        source: "llm" as const,
-        severity: c.severity,
-        category: c.category,
-        confidence: c.confidence,
-        suggestedFix: c.suggestedFix,
-      }));
-
-    // If single file in chunk, assign summary directly.
-    // If multiple, the summary covers all of them.
-    if (chunk.files.length === 1) {
-      return [{
-        filename: chunk.files[0].filename,
-        summary: parsed.fileSummary,
-        comments,
-      }];
-    }
-
-    // Multiple files in chunk: split comments by file, share the summary
-    return chunk.files.map((f) => ({
-      filename: f.filename,
-      summary: parsed.fileSummary,
-      comments: comments.filter((c) => c.path === f.filename),
-    }));
-  } catch (err) {
-    log.error({ err }, "Per-file LLM review chunk failed");
-    return null;
-  }
-}
-
-function parseFileAnalysisResponse(
-  text: string
-): z.infer<typeof fileAnalysisResponseSchema> | null {
-  const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-  const jsonStr = jsonMatch ? jsonMatch[1] : text;
-
-  try {
-    const raw = JSON.parse(jsonStr);
-    return fileAnalysisResponseSchema.parse(raw);
-  } catch {
-    const objectMatch = text.match(
-      /\{[\s\S]*"fileSummary"[\s\S]*"comments"[\s\S]*\}/
-    );
-    if (objectMatch) {
-      try {
-        return fileAnalysisResponseSchema.parse(JSON.parse(objectMatch[0]));
-      } catch {
-        return null;
-      }
-    }
-    // Fallback: try parsing as the old format (summary instead of fileSummary)
     try {
-      const raw = JSON.parse(jsonStr);
-      if (raw.summary && raw.comments) {
-        return fileAnalysisResponseSchema.parse({
-          fileSummary: raw.summary,
-          comments: raw.comments,
+      const response = await withRetry(
+        () =>
+          client.messages.create({
+            model: config.llm.model,
+            max_tokens: 4096,
+            temperature: config.llm.temperature,
+            system: systemPrompt,
+            messages,
+            tools,
+            tool_choice: toolChoice,
+          }),
+        {
+          maxAttempts: 2,
+          retryOn: (err: any) => err?.status === 529 || err?.status === 500,
+        }
+      );
+
+      // Process response content blocks
+      const toolUseBlocks = response.content.filter(
+        (b): b is Anthropic.ContentBlock & { type: "tool_use" } =>
+          b.type === "tool_use"
+      );
+
+      // No tool calls — the model stopped without calling submit_review.
+      // If tool_choice was "auto" and model returned only text, treat as
+      // an implicit empty review (shouldn't normally happen with good prompts).
+      if (toolUseBlocks.length === 0) {
+        const text = response.content
+          .filter((b): b is Anthropic.TextBlock => b.type === "text")
+          .map((b) => b.text)
+          .join("");
+
+        log.warn(
+          { iteration },
+          "LLM returned no tool calls, treating as empty review"
+        );
+        return {
+          comments: [],
+          summary: text.slice(0, 500) || "No significant issues found.",
+          toolCallsMade,
+        };
+      }
+
+      // Check for submit_review among the tool calls
+      const submitBlock = toolUseBlocks.find(
+        (b) => b.name === "submit_review"
+      );
+
+      if (submitBlock) {
+        const parsed = submitReviewSchema.safeParse(submitBlock.input);
+        if (!parsed.success) {
+          log.warn(
+            { errors: parsed.error.issues },
+            "submit_review validation failed, returning raw"
+          );
+          // Best-effort: extract what we can
+          const raw = submitBlock.input as any;
+          return {
+            comments: [],
+            summary:
+              typeof raw?.summary === "string"
+                ? raw.summary.slice(0, 500)
+                : "Review completed (parse error).",
+            toolCallsMade,
+          };
+        }
+
+        const comments = mapToFindings(parsed.data, validFiles);
+        return {
+          comments,
+          summary: parsed.data.summary,
+          toolCallsMade,
+        };
+      }
+
+      // Execute lookup tool calls and accumulate results
+      const assistantContent = response.content;
+      const toolResults: Anthropic.MessageParam["content"] = [];
+
+      for (const block of toolUseBlocks) {
+        toolCallsMade++;
+        log.info(
+          { tool: block.name, iteration },
+          "Executing tool call"
+        );
+        const result = await executeToolCall(
+          block.name,
+          block.input as Record<string, unknown>,
+          repo
+        );
+        accumulatedToolResultTokens += Math.ceil(result.length / CHARS_PER_TOKEN);
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: result,
         });
       }
-    } catch {
-      // ignore
+
+      // Append assistant message and tool results to conversation
+      messages.push({ role: "assistant", content: assistantContent });
+      messages.push({ role: "user", content: toolResults });
+    } catch (err) {
+      log.error({ err, iteration }, "Agentic review iteration failed");
+      return {
+        comments: [],
+        summary: "Review failed due to an error.",
+        toolCallsMade,
+      };
     }
-    return null;
   }
+
+  // Should not reach here (last iteration forces submit_review),
+  // but handle gracefully
+  log.warn("Agentic review exceeded max iterations without submit_review");
+  return {
+    comments: [],
+    summary: "Review reached iteration limit.",
+    toolCallsMade,
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: Cross-file analysis
+// Helpers
 // ---------------------------------------------------------------------------
 
-async function runCrossFileAnalysis(
-  files: ParsedFile[],
-  fileAnalyses: FileAnalysis[],
-  config: RepoConfig,
-  learningContext?: string
-): Promise<{ summary: string; comments: ReviewFinding[] } | null> {
-  const systemPrompt = buildCrossFilePrompt(
-    config,
-    fileAnalyses.map((a) => ({
-      filename: a.filename,
-      summary: a.summary || "No issues found.",
-    })),
-    learningContext
-  );
-
-  // Build a condensed view of all files for the cross-file pass.
-  // If total tokens are within budget, send all files.
-  // Otherwise, truncate to fit.
-  const totalTokens = files.reduce((s, f) => s + estimateFileTokens(f), 0);
-  let filesToSend = files;
-  if (totalTokens > config.llm.maxTokenBudget) {
-    // Prioritize files that had findings in phase 1
-    const filesWithFindings = new Set(
-      fileAnalyses.filter((a) => a.comments.length > 0).map((a) => a.filename)
-    );
-    const sorted = [...files].sort((a, b) => {
-      const aHas = filesWithFindings.has(a.filename) ? 1 : 0;
-      const bHas = filesWithFindings.has(b.filename) ? 1 : 0;
-      return bHas - aHas;
-    });
-    // Take files until budget is hit
-    filesToSend = [];
-    let tokens = 0;
-    for (const f of sorted) {
-      const ft = estimateFileTokens(f);
-      if (tokens + ft > config.llm.maxTokenBudget) break;
-      filesToSend.push(f);
-      tokens += ft;
-    }
-  }
-
-  if (filesToSend.length === 0) return null;
-
-  const userPrompt = buildUserPrompt(filesToSend);
-  const client = getAnthropicClient();
-
-  try {
-    const response = await withRetry(
-      () =>
-        client.messages.create({
-          model: config.llm.model,
-          max_tokens: 4096,
-          temperature: config.llm.temperature,
-          system: systemPrompt,
-          messages: [{ role: "user", content: userPrompt }],
-        }),
-      {
-        maxAttempts: 2,
-        retryOn: (err: any) => err?.status === 529 || err?.status === 500,
-      }
-    );
-
-    const text = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-
-    const parsed = parseCrossFileResponse(text);
-    if (!parsed) {
-      log.warn("Failed to parse cross-file LLM response");
-      return { summary: text.slice(0, 500), comments: [] };
-    }
-
-    const validFiles = new Set(filesToSend.map((f) => f.filename));
-    const comments: ReviewFinding[] = parsed.comments
-      .filter((c) => validFiles.has(c.path))
-      .map((c) => ({
-        path: c.path,
-        line: c.line,
-        body: c.body,
-        source: "llm" as const,
-        severity: c.severity,
-        category: c.category,
-        confidence: c.confidence,
-        suggestedFix: c.suggestedFix,
-      }));
-
-    return { summary: parsed.summary, comments };
-  } catch (err) {
-    log.error({ err }, "Cross-file LLM review failed");
-    return null;
-  }
-}
-
-function parseCrossFileResponse(
-  text: string
-): z.infer<typeof crossFileResponseSchema> | null {
-  const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-  const jsonStr = jsonMatch ? jsonMatch[1] : text;
-
-  try {
-    return crossFileResponseSchema.parse(JSON.parse(jsonStr));
-  } catch {
-    const objectMatch = text.match(
-      /\{[\s\S]*"summary"[\s\S]*"comments"[\s\S]*\}/
-    );
-    if (objectMatch) {
-      try {
-        return crossFileResponseSchema.parse(JSON.parse(objectMatch[0]));
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
+function mapToFindings(
+  data: SubmitReviewInput,
+  validFiles: Set<string>
+): ReviewFinding[] {
+  return data.comments
+    .filter((c) => validFiles.has(c.path))
+    .map((c) => ({
+      path: c.path,
+      line: c.line,
+      body: c.body,
+      source: "llm" as const,
+      severity: c.severity,
+      category: c.category,
+      confidence: c.confidence,
+      suggestedFix: c.suggestedFix,
+    }));
 }

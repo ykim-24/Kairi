@@ -6,14 +6,9 @@ import { loadRepoConfig } from "../config-loader/loader.js";
 import { runRules } from "../rules/engine.js";
 import { reviewWithLLM } from "../llm/reviewer.js";
 import { isLearningEnabled, loadEnv } from "../config/env.js";
-import {
-  retrieveLearningContext,
-  formatLearningContext,
-} from "../learning/recall.js";
 import { storeInteraction as vectorStore } from "../learning/vector-store.js";
 import { storeInteraction as graphStore } from "../learning/graph-store.js";
 import { extractConcepts } from "../learning/concept-extractor.js";
-import { enrichFindings } from "../learning/enrich.js";
 import { collectReviewMetrics } from "../metrics/collector.js";
 import { getFeatureFlag, insertPendingReview } from "../metrics/pg-store.js";
 import { estimateFileTokens } from "../llm/chunker.js";
@@ -63,50 +58,41 @@ export async function orchestrateReview(
   // 4. Run rule engine
   const { comments: ruleComments, rulesRun } = runRules(parsedFiles, config);
 
-  // 5. Retrieve learning context (if enabled)
-  let learningPrompt: string | undefined;
+  // 5. Run LLM review (with agentic tool-use for knowledge base access)
   const env = loadEnv();
-  if (isLearningEnabled(env) && config.learning.enabled) {
-    const repo = `${ctx.owner}/${ctx.repo}`;
-    const learningCtx = await retrieveLearningContext(parsedFiles, repo);
-    learningPrompt = formatLearningContext(learningCtx);
-  }
+  const repo = `${ctx.owner}/${ctx.repo}`;
+  const learningEnabled = isLearningEnabled(env) && config.learning.enabled;
 
-  // 6. Run LLM review
   let llmComments: ReviewFinding[] = [];
   let llmSummary = "";
   let chunksUsed = 0;
+  let toolCallsMade = 0;
 
   if (config.llm.enabled) {
     const llmResult = await reviewWithLLM(
       parsedFiles,
       config,
-      learningPrompt
+      repo,
+      learningEnabled
     );
     llmComments = llmResult.comments;
     llmSummary = llmResult.summary;
     chunksUsed = llmResult.chunksUsed;
+    toolCallsMade = llmResult.toolCallsMade;
   }
 
-  // 7. Combine into unified ReviewFinding[] and deduplicate
+  // 6. Combine into unified ReviewFinding[] and deduplicate
   const allFindings = deduplicateFindings([...ruleComments, ...llmComments]);
 
-  // 8. Partition into inline-worthy vs body-only
+  // 7. Partition into inline-worthy vs body-only
   const { inline, bodyOnly } = filterFindings(allFindings, config);
 
-  // 9. Enrich inline findings with graph DB context
-  const repo = `${ctx.owner}/${ctx.repo}`;
-  let enrichedInline = inline;
-  if (isLearningEnabled(env) && config.learning.enabled) {
-    enrichedInline = await enrichFindings(inline, repo, parsedFiles);
-  }
-
-  // 10. Build structured review body with all findings
+  // 8. Build structured review body with all findings
   const durationMs = Date.now() - startTime;
   const bodyMarkdown = buildReviewBody({
     llmSummary,
-    findings: [...enrichedInline, ...bodyOnly],
-    inlineCount: enrichedInline.length,
+    findings: [...inline, ...bodyOnly],
+    inlineCount: inline.length,
     metadata: {
       filesReviewed: parsedFiles.length,
       rulesRun,
@@ -116,13 +102,13 @@ export async function orchestrateReview(
     },
   });
 
-  // 11. Format inline comments
-  const formattedInline = enrichedInline.map((f) => ({
+  // 9. Format inline comments
+  const formattedInline = inline.map((f) => ({
     ...f,
     body: formatInlineComment(f),
   }));
 
-  // 12. Determine event type
+  // 10. Determine event type
   const hasErrors = allFindings.some((f) => f.severity === "error");
   const event = hasErrors ? "REQUEST_CHANGES" as const : "COMMENT" as const;
 
@@ -138,7 +124,7 @@ export async function orchestrateReview(
     },
   };
 
-  // 13. Check review gate — hold review for manual approval if enabled
+  // 11. Check review gate — hold review for manual approval if enabled
   const gated = await getFeatureFlag("review_gate");
   if (gated) {
     await insertPendingReview(
@@ -156,10 +142,10 @@ export async function orchestrateReview(
     return;
   }
 
-  // 14. Post review
+  // 12. Post review
   const reviewId = await postReview(octokit, ctx, result);
 
-  // 15. Record metrics
+  // 13. Record metrics
   collectReviewMetrics({
     repo,
     pullNumber: ctx.pullNumber,
@@ -174,13 +160,11 @@ export async function orchestrateReview(
     llmTokensEstimated: parsedFiles.reduce((sum, f) => sum + estimateFileTokens(f), 0),
     llmParseSuccess: llmComments.length > 0 || llmSummary.length > 0,
     durationMs,
-    patternsRecalled: learningPrompt ? (learningPrompt.match(/^- \*\*/gm)?.length ?? 0) : 0,
-    approvedPatternsUsed: learningPrompt ? (learningPrompt.match(/well-received/g)?.length ?? 0) > 0 ? 1 : 0 : 0,
-    rejectedPatternsUsed: learningPrompt ? (learningPrompt.match(/dismissed/g)?.length ?? 0) > 0 ? 1 : 0 : 0,
+    toolCallsMade,
   });
 
-  // 16. Store interactions for learning
-  if (isLearningEnabled(env) && config.learning.enabled) {
+  // 14. Store interactions for learning
+  if (learningEnabled) {
     await storeReviewInteractions(ctx, parsedFiles, allFindings, reviewId);
   }
 
@@ -289,7 +273,7 @@ async function storeReviewInteractions(
       line: comment.line,
       category: comment.category ?? comment.ruleId ?? "general",
       approved: null,
-      concepts: extractConcepts([file], comment.body),
+      concepts: await extractConcepts([file], comment.body),
       timestamp: new Date().toISOString(),
       source: comment.source,
       severity: comment.severity,
