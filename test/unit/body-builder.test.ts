@@ -96,7 +96,7 @@ describe("buildReviewBody", () => {
       metadata: defaultMetadata,
     });
 
-    expect(body).toContain("- `c.ts` L5 — Consider this");
+    expect(body).toContain("- **`c.ts`** L5 — Consider this");
   });
 
   it("shows compact stats footer", () => {
