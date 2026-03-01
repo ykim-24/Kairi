@@ -1,4 +1,5 @@
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 
 interface TerminalMarkdownProps {
@@ -174,16 +175,25 @@ const components: Components = {
   },
   table({ children }) {
     return (
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          fontSize: 13,
-          margin: "8px 0",
-        }}
-      >
+      <div style={{ overflowX: "auto", margin: "10px 0" }}>
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            fontSize: 12,
+            border: "1px solid var(--border)",
+          }}
+        >
+          {children}
+        </table>
+      </div>
+    );
+  },
+  thead({ children }) {
+    return (
+      <thead style={{ background: "rgba(212,130,158,0.06)" }}>
         {children}
-      </table>
+      </thead>
     );
   },
   th({ children }) {
@@ -191,12 +201,15 @@ const components: Components = {
       <th
         style={{
           textAlign: "left",
-          padding: "6px 10px",
+          padding: "8px 12px",
           borderBottom: "2px solid var(--border)",
+          borderRight: "1px solid var(--border)",
           color: "var(--accent)",
           textTransform: "uppercase",
           letterSpacing: 1,
           fontSize: 11,
+          fontWeight: 600,
+          whiteSpace: "nowrap",
         }}
       >
         {children}
@@ -207,8 +220,10 @@ const components: Components = {
     return (
       <td
         style={{
-          padding: "4px 10px",
+          padding: "8px 12px",
           borderBottom: "1px solid var(--border)",
+          borderRight: "1px solid var(--border)",
+          verticalAlign: "top",
         }}
       >
         {children}
@@ -223,7 +238,9 @@ const components: Components = {
 export function TerminalMarkdown({ children }: TerminalMarkdownProps) {
   return (
     <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-      <Markdown components={components}>{children}</Markdown>
+      <Markdown remarkPlugins={[remarkGfm]} components={components}>
+        {children}
+      </Markdown>
     </div>
   );
 }
