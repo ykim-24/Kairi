@@ -33,10 +33,8 @@ export interface ReviewMetric {
   llmParseSuccess: boolean;
   // Timing
   durationMs: number;
-  // Learning
-  patternsRecalled: number;
-  approvedPatternsUsed: number;
-  rejectedPatternsUsed: number;
+  // Learning (agentic tool-use)
+  toolCallsMade: number;
 }
 
 /** Recorded for each feedback signal */

@@ -51,10 +51,6 @@ vi.mock("../../src/rules/engine.js", () => ({
 vi.mock("../../src/llm/reviewer.js", () => ({
   reviewWithLLM: vi.fn(),
 }));
-vi.mock("../../src/learning/recall.js", () => ({
-  retrieveLearningContext: vi.fn(),
-  formatLearningContext: vi.fn(),
-}));
 vi.mock("../../src/learning/vector-store.js", () => ({
   storeInteraction: vi.fn(),
 }));
@@ -62,10 +58,7 @@ vi.mock("../../src/learning/graph-store.js", () => ({
   storeInteraction: vi.fn(),
 }));
 vi.mock("../../src/learning/concept-extractor.js", () => ({
-  extractConcepts: vi.fn().mockReturnValue([]),
-}));
-vi.mock("../../src/learning/enrich.js", () => ({
-  enrichFindings: vi.fn().mockResolvedValue([]),
+  extractConcepts: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("../../src/metrics/collector.js", () => ({
   collectReviewMetrics: vi.fn(),

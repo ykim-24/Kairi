@@ -56,9 +56,7 @@ describeWithDb("metrics pg store", () => {
     llmTokensEstimated: 15000,
     llmParseSuccess: true,
     durationMs: 5400,
-    patternsRecalled: 3,
-    approvedPatternsUsed: 2,
-    rejectedPatternsUsed: 1,
+    toolCallsMade: 3,
   };
 
   const sampleFeedback: FeedbackMetric = {
@@ -132,9 +130,7 @@ describe("metrics types", () => {
       llmTokensEstimated: 0,
       llmParseSuccess: true,
       durationMs: 0,
-      patternsRecalled: 0,
-      approvedPatternsUsed: 0,
-      rejectedPatternsUsed: 0,
+      toolCallsMade: 0,
     };
     expect(metric.repo).toBe("org/repo");
   });
